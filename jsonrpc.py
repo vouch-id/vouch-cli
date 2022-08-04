@@ -1,6 +1,9 @@
 import json
 import sys
 import ssl
+import time
+import math
+from uuid import uuid4
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from subprocess import check_output
@@ -12,9 +15,11 @@ class Client:
         self.insecure = insecure
 
     def call(self, method, params=None):
+        requestId = str(uuid4())
+
         req = {
             'jsonrpc': '2.0',
-            'id': None,
+            'id': requestId,
             'method': method,
         }
         if params is not None:
@@ -23,10 +28,13 @@ class Client:
 
         signature = check_output(
             ['ssh-keygen', '-q', '-Y', 'sign', '-f', self.keyFile, '-n', 'api', '-'],
-            input=req).decode('utf-8')
+            input=req).decode('utf-8').replace('\n', '')
+
+        auth_header = f'SSH {requestId} {math.floor(time.time())} {signature}'
 
         # print(req)
         # print(signature)
+        # print(auth_header)
 
         context = ssl.create_default_context()
         if self.insecure:
@@ -36,7 +44,7 @@ class Client:
             res = urlopen(Request(self.serviceUrl,
                                   data=req,
                                   headers={
-                                      'Authorization': 'SSH ' + signature.replace('\n', ''),
+                                      'Authorization': auth_header,
                                       'Content-Type': 'application/json',
                                   },
                                   method='POST'),
