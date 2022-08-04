@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import script
+s = script.Script('registerAgent')
+s.parser.add_argument('inviteSecret')
+args = s.args()
+s.run({
+    'invite_secret': args.inviteSecret,
+})

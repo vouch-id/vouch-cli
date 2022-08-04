@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import script
+s = script.Script('reregisterAgent')
+s.parser.add_argument('newPublicKeyFile')
+args = s.args()
+s.run({
+    'agent': None if args.newPublicKeyFile == '-' else open(args.newPublicKeyFile, 'r').read(),
+})
