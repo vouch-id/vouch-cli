@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+import script
+import json
+s = script.Script('lookupRegistration')
+s.parser.add_argument('tempCode')
+args = s.args()
+res = s.run({
+    'temp_code': args.tempCode,
+})
+if res['found']:
+    print(res['user'] + ((' ' + res['comment']) if res['comment'] else ''))

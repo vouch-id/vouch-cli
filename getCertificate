@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import script
+s = script.Script('getCertificate')
+s.parser.add_argument('agentId')
+args = s.args()
+print(s.run({
+    'agent_id': args.agentId,
+})['certificate'] or '')
