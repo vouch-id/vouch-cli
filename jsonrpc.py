@@ -26,28 +26,25 @@ class Client:
             req['params'] = params
         req = json.dumps(req).encode('utf-8')
 
-        signature = check_output(
-            ['ssh-keygen', '-q', '-Y', 'sign', '-f', self.keyFile, '-n', 'api', '-'],
-            input=req).decode('utf-8').replace('\n', '')
+        headers = {
+            'Content-Type': 'application/json',
+        }
 
-        auth_header = f'SSH {requestId} {math.floor(time.time())} {signature}'
-
-        # print(req)
-        # print(signature)
-        # print(auth_header)
+        if self.keyFile:
+            prefix = f'SSH {requestId} {math.floor(time.time())} '.encode('utf-8')
+            signedMessage = prefix + req
+            signature = check_output(
+                ['ssh-keygen', '-q', '-Y', 'sign', '-f', self.keyFile, '-n', 'api', '-'],
+                input=signedMessage).replace(b'\n', b'')
+            auth_header = prefix + signature
+            headers['Authorization'] = auth_header
 
         context = ssl.create_default_context()
         if self.insecure:
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
         try:
-            res = urlopen(Request(self.serviceUrl,
-                                  data=req,
-                                  headers={
-                                      'Authorization': auth_header,
-                                      'Content-Type': 'application/json',
-                                  },
-                                  method='POST'),
+            res = urlopen(Request(self.serviceUrl, data=req, headers=headers, method='POST'),
                           context=context)
         except HTTPError as exn:
             print(json.dumps({
