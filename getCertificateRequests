@@ -3,5 +3,5 @@ import script
 import json
 s = script.Script('getCertificateRequests')
 args = s.args()
-for userKey in s.run({})['users']:
-    print(userKey)
+for req in s.run({})['requests']:
+    print(req['user'] + ((' ' + req['comment']) if req['comment'] else ''))

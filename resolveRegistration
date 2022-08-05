@@ -3,10 +3,12 @@ import script
 import json
 s = script.Script('resolveRegistration')
 s.parser.add_argument('userKey')
+s.parser.add_argument('comment')
 s.parser.add_argument('--create', destination='allowed', action='store_true')
 s.parser.add_argument('--delete', destination='allowed', action='store_false')
 args = s.args()
 s.run({
     'user': args.userKey,
+    'comment': args.comment,
     'allowed': args.allowed,
 })

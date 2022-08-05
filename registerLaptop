@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 import script
+
+def defaultComment():
+    import os
+    import socket
+    return os.getlogin() + '@' + socket.getfqdn()
+
 s = script.Script('registerLaptop')
 s.parser.add_argument('agentId')
-s.parser.add_argument('comment')
+s.parser.add_argument('comment', default=None, nargs='?')
 args = s.args()
 print(s.run({
     'agent_id': args.agentId,
-    'comment': args.comment,
+    'comment': args.comment or defaultComment(),
 })['temp_code'])
