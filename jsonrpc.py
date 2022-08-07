@@ -33,9 +33,13 @@ class Client:
         if self.keyFile:
             prefix = f'SSH {requestId} {math.floor(time.time())} '.encode('utf-8')
             signedMessage = prefix + req
-            signature = check_output(
-                ['ssh-keygen', '-q', '-Y', 'sign', '-f', self.keyFile, '-n', 'api', '-'],
-                input=signedMessage).replace(b'\n', b'')
+            signature = check_output(['ssh-keygen',
+                                      '-q',
+                                      '-Y', 'sign',
+                                      '-f', self.keyFile,
+                                      '-n', 'ssh-cert-auth+api@leastfixedpoint.com',
+                                      '-'],
+                                     input=signedMessage).replace(b'\n', b'')
             auth_header = prefix + signature
             headers['Authorization'] = auth_header
 
