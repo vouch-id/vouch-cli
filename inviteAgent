@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import script
+import urllib.parse
 s = script.Script('inviteAgent')
 s.parser.add_argument('agentId')
 s.parser.add_argument('--expiry', type=int, default=86400)
@@ -13,4 +14,7 @@ invite_secret = s.run({
 if args.invitation_code_only:
     print(invite_secret)
 else:
-    print(args.serviceUrl + 'invite.html#!' + invite_secret)
+    print(args.serviceUrl + 'invite.html#!' + urllib.parse.urlencode({
+        'agent': args.agentId,
+        'secret': invite_secret,
+    }))
