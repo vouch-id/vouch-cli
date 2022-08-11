@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+import json
+import script
+s = script.Script('deregisterUser', 'principalKeyFile')
+s.parser.add_argument('userKey')
+args = s.args()
+print(json.dumps(s.run({
+    'user': args.userKey,
+})['deleted']))
