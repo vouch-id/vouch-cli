@@ -2,9 +2,9 @@
 import json
 import argparse
 import script
-s = script.Script('deleteAgent')
-s.parser.add_argument('agentId')
+s = script.Script('deletePrincipal', 'adminKeyFile')
+s.parser.add_argument('principal')
 args = s.args()
 print(json.dumps(s.run({
-    'agent_id': args.agentId,
+    'principal': args.principal,
 })['deleted']))

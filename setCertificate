@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import script
-s = script.Script('setCertificate')
+s = script.Script('setCertificate', 'principalKeyFile')
 s.parser.add_argument('userKey')
 s.parser.add_argument('certificate', default=None, nargs='?')
 args = s.args()

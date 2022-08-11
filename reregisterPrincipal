@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+import script
+s = script.Script('reregisterPrincipal', 'oldPrincipalKeyFile')
+s.parser.add_argument('newPublicKeyFile')
+args = s.args()
+s.run({
+    'principal_key': None if args.newPublicKeyFile == '-' else open(args.newPublicKeyFile, 'r').read(),
+})

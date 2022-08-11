@@ -2,7 +2,7 @@
 import argparse
 import script
 import json
-s = script.Script('getCertificateRequests')
+s = script.Script('getCertificateRequests', 'principalKeyFile')
 s.parser.add_argument('--json', action=argparse.BooleanOptionalAction)
 args = s.args()
 for req in s.run({})['requests']:

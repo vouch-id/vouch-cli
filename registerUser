@@ -6,11 +6,11 @@ def defaultComment():
     import socket
     return os.getlogin() + '@' + socket.getfqdn()
 
-s = script.Script('registerLaptop')
-s.parser.add_argument('agentId')
+s = script.Script('registerUser', 'userKeyFile')
+s.parser.add_argument('principal')
 s.parser.add_argument('comment', default=None, nargs='?')
 args = s.args()
 print(s.run({
-    'agent_id': args.agentId,
+    'principal': args.principal,
     'comment': args.comment or defaultComment(),
-})['temp_code'])
+})['rendezvous_code'])
