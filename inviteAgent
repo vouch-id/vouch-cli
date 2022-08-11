@@ -15,6 +15,6 @@ if args.invitation_code_only:
     print(invite_secret)
 else:
     print(args.serviceUrl + 'invite.html#!' + urllib.parse.urlencode({
-        'agent': args.agentId,
+        'principal': args.agentId,
         'secret': invite_secret,
     }))
