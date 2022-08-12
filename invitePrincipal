@@ -14,7 +14,7 @@ invite_secret = s.run({
 if args.invitation_code_only:
     print(invite_secret)
 else:
-    print(args.serviceUrl + 'invite.html#!' + urllib.parse.urlencode({
+    print(args.serviceUrl + '#!' + urllib.parse.urlencode({
         'principal': args.principal,
         'secret': invite_secret,
     }))
