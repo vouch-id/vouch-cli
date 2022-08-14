@@ -25,5 +25,5 @@ else:
         'serviceUrl': args.serviceUrl + '_/rpc',
         'invitationCode': invite_secret,
     }
-    print('comleastfixedpointsshcertauth://invitation?' +
+    print('comleastfixedpointsshcertauth:invitation?' +
           base64.b64encode(json.dumps(invitation).encode('utf-8')).decode('utf-8'))
