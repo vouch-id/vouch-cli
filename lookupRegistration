@@ -8,4 +8,4 @@ res = s.run({
     'rendezvous_code': args.rendezvousCode,
 })
 if res['found']:
-    print(res['user'] + ((' ' + res['comment']) if res['comment'] else ''))
+    print(res['machine'] + ((' ' + res['comment']) if res['comment'] else ''))

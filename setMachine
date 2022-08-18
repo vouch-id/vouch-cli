@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 import script
 import json
-s = script.Script('setUser', 'principalKeyFile')
-s.parser.add_argument('userKey')
+s = script.Script('setMachine', 'principalKeyFile')
+s.parser.add_argument('machineKey')
 s.parser.add_argument('comment')
 s.parser.add_argument('certificate', default='', nargs='?')
 args = s.args()
 s.run({
-    'user': args.userKey,
+    'machine': args.machineKey,
     'comment': args.comment,
     'certificate': None if args.certificate == '' else args.certificate,
 })

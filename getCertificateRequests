@@ -9,4 +9,4 @@ for req in s.run({})['requests']:
     if args.json:
         print(json.dumps(req))
     else:
-        print(req['user'] + ((' ' + req['comment']) if req['comment'] else ''))
+        print(req['machine'] + ((' ' + req['comment']) if req['comment'] else ''))

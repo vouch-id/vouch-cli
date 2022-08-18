@@ -6,7 +6,7 @@ def defaultComment():
     import socket
     return os.getlogin() + '@' + socket.getfqdn()
 
-s = script.Script('registerUser', 'userKeyFile')
+s = script.Script('registerMachine', 'machineKeyFile')
 s.parser.add_argument('principal')
 s.parser.add_argument('comment', default=None, nargs='?')
 args = s.args()
