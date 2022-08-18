@@ -20,7 +20,7 @@ class Script:
     def run(self, params=None):
         args = self.args()
         return jsonrpc.Client(getattr(args, self.keyFile) if self.keyFile else None,
-                              args.serviceUrl + '_/rpc',
+                              args.serviceUrl,
                               insecure=args.insecure).call(
                                   self.method,
                                   params)

@@ -22,7 +22,7 @@ else:
     }))
     invitation = {
         'principal': args.principal,
-        'serviceUrl': args.serviceUrl + '_/rpc',
+        'serviceUrl': args.serviceUrl,
         'invitationCode': invite_secret,
     }
     print('comleastfixedpointsshcertauth:invitation?' +
