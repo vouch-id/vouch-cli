@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
+import sys
 import script
 s = script.Script('getCertificate', 'machineKeyFile')
 s.parser.add_argument('principal')
+s.parser.add_argument('-o', '--output')
 args = s.args()
-print(s.run({
+cert = s.run({
     'principal': args.principal,
-})['certificate'] or '')
+})['certificate'] or ''
+if args.output is not None:
+    if cert:
+        with open(args.output, 'w') as f:
+            print(cert, file=f)
+    else:
+        sys.exit(1)
+else:
+    print(cert)
