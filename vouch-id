@@ -85,6 +85,28 @@ def _add_help_to(p, sp):
     h = sp.add_parser('help', help='Print help')
     h.set_defaults(handler=lambda args: p.print_help())
 
+def defaultComment():
+    import os
+    import socket
+    return os.getlogin() + '@' + socket.getfqdn()
+
+def progress_message(s):
+    print(f'\x0d\x1b[K\x1b[33;1m⋯\x1b[39m {s}\x1b[0m', file=sys.stderr, end='')
+
+def progress_ok():
+    print('\x0d\x1b[32;1m✔\x1b[0m', file=sys.stderr)
+
+def progress_fail(and_exit=True):
+    print('\x0d\x1b[31;1m❌\x1b[0m', file=sys.stderr)
+    if and_exit:
+        sys.exit(1)
+
+def progress_check(result, and_exit=True):
+    if result:
+        progress_ok()
+    else:
+        progress_fail(and_exit)
+
 def main(argv=sys.argv):
     app_name = os.path.basename(argv[0])
     argv = argv[1:]
@@ -163,11 +185,6 @@ def main(argv=sys.argv):
     ssp = p.add_subparsers()
     _add_help_to(p, ssp)
 
-    def defaultComment():
-        import os
-        import socket
-        return os.getlogin() + '@' + socket.getfqdn()
-
     def registerMachine(args):
         print(script(args, 'registerMachine', args.keyFile, {
             'principal': args.principal,
@@ -198,6 +215,105 @@ def main(argv=sys.argv):
     p.add_argument('principal')
     p.add_argument('-o', '--output', metavar='FILENAME')
     p.set_defaults(handler=getCertificate)
+
+    def login(args):
+        keyFile = os.path.expanduser(args.keyFile)
+        certFile = keyFile + '-cert.pub'
+
+        progress_message('Checking key pair')
+        if os.path.exists(keyFile):
+            progress_ok()
+        else:
+            progress_message('Generating key pair')
+            check_output(['ssh-keygen',
+                          '-q',
+                          '-t', 'ed25519',
+                          '-C', args.comment,
+                          '-N', '',
+                          '-f', keyFile])
+            progress_check(os.path.exists(keyFile))
+
+        cert = None
+        if os.path.exists(certFile):
+            progress_message('Checking existing certificate')
+            with open(certFile, 'rt') as f:
+                cert = f.read()
+            lines = []
+            try:
+                lines = check_output(['ssh-keygen',
+                                      '-L',
+                                      '-f', certFile]).decode('utf-8').split('\n')
+            except:
+                pass
+            for line in lines:
+                if line.startswith('        Valid: before '):
+                    ends = time.strptime(line, '        Valid: before %Y-%m-%dT%H:%M:%S')
+                    if ends <= time.localtime():
+                        cert = None
+            if cert is not None:
+                progress_ok()
+
+        if cert is None:
+            progress_message('Fetching certificate')
+
+            def get_rendezvous_code():
+                try:
+                    return script(args, 'registerMachine', args.keyFile, {
+                        'principal': args.principal,
+                        'comment': args.comment,
+                    })['rendezvous_code']
+                except APIError as exn:
+                    if exn.error.get('data') == 'MACHINE_ALREADY_REGISTERED':
+                        return None
+                    else:
+                        progress_fail(False)
+                        raise
+
+            def get_certificate():
+                try:
+                    return script(args, 'getCertificate', args.keyFile, {
+                        'principal': args.principal,
+                    })['certificate'] or ''
+                except APIError as exn:
+                    if exn.error.get('data') == 'MACHINE_NOT_FOUND':
+                        return False
+                    else:
+                        progress_fail(False)
+                        raise
+
+            old_rendezvous_code = None
+            new_rendezvous_code = get_rendezvous_code()
+
+            while True:
+                if new_rendezvous_code != None:
+                    if old_rendezvous_code != new_rendezvous_code:
+                        progress_message('Add machine in app. Rendezvous code: ' + new_rendezvous_code)
+                        old_rendezvous_code = new_rendezvous_code
+                    time.sleep(5)
+                    new_rendezvous_code = get_rendezvous_code()
+                    continue
+
+                cert = get_certificate()
+                if cert == False:
+                    continue
+                if cert:
+                    break
+                progress_message('Waiting for certificate to issue')
+                time.sleep(5)
+
+            with open(certFile, 'wt') as f:
+                f.write(cert)
+            check_output(['ssh-add',
+                          '-q',
+                          keyFile])
+
+            progress_ok()
+
+    p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
+    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
+    p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+    p.add_argument('principal')
+    p.set_defaults(handler=login)
 
     #---------------------------------------------------------------------------
 
