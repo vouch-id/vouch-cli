@@ -175,7 +175,7 @@ def main(argv=sys.argv):
         })['rendezvous_code'])
 
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
-    p.add_argument('keyFile', metavar='machineKeyFile')
+    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
     p.add_argument('principal')
     p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
     p.set_defaults(handler=registerMachine)
@@ -194,7 +194,7 @@ def main(argv=sys.argv):
             print(cert)
 
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
-    p.add_argument('keyFile', metavar='machineKeyFile')
+    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
     p.add_argument('principal')
     p.add_argument('-o', '--output', metavar='FILENAME')
     p.set_defaults(handler=getCertificate)
