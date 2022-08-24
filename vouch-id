@@ -48,7 +48,7 @@ class Client:
             signature = check_output(['ssh-keygen',
                                       '-q',
                                       '-Y', 'sign',
-                                      '-f', self.keyFile,
+                                      '-f', os.path.expanduser(self.keyFile),
                                       '-n', 'vouch.id+api@leastfixedpoint.com',
                                       '-'],
                                      input=signedMessage).replace(b'\n', b'')
