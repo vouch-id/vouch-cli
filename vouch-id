@@ -251,6 +251,18 @@ def main(argv=sys.argv):
     p.add_argument('--json', action='store_true')
     p.set_defaults(handler=listMachines)
 
+    def lookupRegistration(args):
+        res = script(args, 'lookupRegistration', args.keyFile, {
+            'rendezvous_code': args.rendezvousCode,
+        })
+        if res['found']:
+            print(res['machine'] + ((' ' + res['comment']) if res['comment'] else ''))
+
+    p = sssp.add_parser('lookup', help='Look up outstanding machine registration', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('rendezvousCode')
+    p.set_defaults(handler=lookupRegistration)
+
     p = ssp.add_parser('csr', help='Manage outstanding CSRs', **SP_ARGS)
     principal_csr_p = p
     p.set_defaults(handler=lambda args: principal_csr_p.print_help())
@@ -268,18 +280,6 @@ def main(argv=sys.argv):
     p.add_argument('keyFile', metavar='principalKeyFile')
     p.add_argument('--json', action='store_true')
     p.set_defaults(handler=getCertificateRequests)
-
-    def lookupRegistration(args):
-        res = script(args, 'lookupRegistration', args.keyFile, {
-            'rendezvous_code': args.rendezvousCode,
-        })
-        if res['found']:
-            print(res['machine'] + ((' ' + res['comment']) if res['comment'] else ''))
-
-    p = sssp.add_parser('lookup', help='Look up outstanding CSR', **SP_ARGS)
-    p.add_argument('keyFile', metavar='principalKeyFile')
-    p.add_argument('rendezvousCode')
-    p.set_defaults(handler=lookupRegistration)
 
     p = ssp.add_parser('account', help='Manage a principal\'s account', **SP_ARGS)
     principal_account_p = p
