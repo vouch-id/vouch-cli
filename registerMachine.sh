@@ -29,7 +29,7 @@ reqId="$(dd if=/dev/urandom bs=32 count=1 status=none | base64)"
 req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"registerMachine","params":{"principal":"'"$principal"'","comment":"'"$comment"'"}}'
 
 stamp="$(date +%s)"
-sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "ssh-cert-auth+api@leastfixedpoint.com" - | tr -d '\n')"
+sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "vouch.id+api@leastfixedpoint.com" - | tr -d '\n')"
 
 ${curl} -s --data-binary "$req" \
         -H "Authorization: SSH $reqId $stamp $sig" \
