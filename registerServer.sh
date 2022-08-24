@@ -15,21 +15,15 @@ do
 done
 
 serviceUrl=${ARGS[0]}
-keyFile=${ARGS[1]}
-principal=${ARGS[2]}
+principal=${ARGS[1]}
 
 if [ -z "$serviceUrl" ]; then echo "Missing serviceUrl"; exit 1; fi
-if [ -z "$keyFile" ]; then echo "Missing keyFile"; exit 1; fi
 if [ -z "$principal" ]; then echo "Missing principal"; exit 1; fi
 
 reqId="$(dd if=/dev/urandom bs=32 count=1 status=none | base64)"
-req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"getCertificate","params":{"principal":"'"$principal"'"}}'
-
-stamp="$(date +%s)"
-sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "ssh-cert-auth+api@leastfixedpoint.com" - | tr -d '\n')"
+req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"registerServer","params":{"principal":"'"$principal"'"}}'
 
 ${curl} -s --data-binary "$req" \
-        -H "Authorization: SSH $reqId $stamp $sig" \
         -H "Content-Type: application/json" \
         "$serviceUrl" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["certificate"] or "")'
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["principal_key"] or "")'

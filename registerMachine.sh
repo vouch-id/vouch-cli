@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -eu
+
 ARGS=()
 curl=curl
 
@@ -29,4 +31,8 @@ req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"registerMachine","params":{"pr
 stamp="$(date +%s)"
 sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "ssh-cert-auth+api@leastfixedpoint.com" - | tr -d '\n')"
 
-${curl} -v --data-binary "$req" -H "Authorization: SSH $reqId $stamp $sig" -H "Content-Type: application/json" "$serviceUrl"
+${curl} -s --data-binary "$req" \
+        -H "Authorization: SSH $reqId $stamp $sig" \
+        -H "Content-Type: application/json" \
+        "$serviceUrl" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["rendezvous_code"])'
