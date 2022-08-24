@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+import ssl
+import time
+import math
+import os
+from uuid import uuid4
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from subprocess import check_output
+
+class APIError(Exception):
+    def __init__(self, response):
+        self.error = response.get('error')
+        if self.error and 'message' in self.error:
+            super().__init__(f'API error: {self.error["message"]}')
+        else:
+            super().__init__(f'API error: {json.dumps(response)}')
+        self.response = response
+
+class Client:
+    def __init__(self, keyFile, serviceUrl, insecure=False):
+        self.keyFile = keyFile
+        self.serviceUrl = serviceUrl
+        self.insecure = insecure
+
+    def call(self, method, params=None):
+        requestId = str(uuid4())
+
+        req = {
+            'jsonrpc': '2.0',
+            'id': requestId,
+            'method': method,
+        }
+        if params is not None:
+            req['params'] = params
+        req = json.dumps(req).encode('utf-8')
+
+        headers = {
+            'Content-Type': 'application/json',
+        }
+
+        if self.keyFile:
+            prefix = f'SSH {requestId} {math.floor(time.time())} '.encode('utf-8')
+            signedMessage = prefix + req
+            signature = check_output(['ssh-keygen',
+                                      '-q',
+                                      '-Y', 'sign',
+                                      '-f', self.keyFile,
+                                      '-n', 'ssh-cert-auth+api@leastfixedpoint.com',
+                                      '-'],
+                                     input=signedMessage).replace(b'\n', b'')
+            auth_header = prefix + signature
+            headers['Authorization'] = auth_header
+
+        context = ssl.create_default_context()
+        if self.insecure:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+        res = urlopen(Request(self.serviceUrl, data=req, headers=headers, method='POST'),
+                      context=context)
+
+        if res.status == 200:
+            res = json.loads(res.read().decode('utf-8'))
+            if 'result' in res:
+                return res['result']
+            else:
+                raise APIError(res)
+        elif res.status >= 200 and res.status <= 299:
+            return None
+        else:
+            print(json.dumps({
+                'http': res.status,
+                'reason': res.reason,
+            }), file=sys.stderr)
+            sys.exit(1)
+
+def script(args, method, keyFile, params):
+    return Client(keyFile, args.serviceUrl, insecure=args.insecure).call(method, params)
+
+def _add_help_to(p, sp):
+    h = sp.add_parser('help', help='Print help')
+    h.set_defaults(handler=lambda args: p.print_help())
+
+def main(argv=sys.argv):
+    app_name = os.path.basename(argv[0])
+    argv = argv[1:]
+
+    synopsis='''Interface to the vouch.id API.'''
+
+    SP_ARGS = { 'formatter_class': argparse.ArgumentDefaultsHelpFormatter }
+
+    parser = argparse.ArgumentParser(prog=app_name,
+                                     description=synopsis,
+                                     **SP_ARGS)
+
+    parser.add_argument('--insecure', action=argparse.BooleanOptionalAction, help=argparse.SUPPRESS)
+    parser.add_argument('-s', '--service-url', dest='serviceUrl', default='https://vouch.id/')
+
+    parser.set_defaults(handler=lambda args: parser.print_help())
+
+    sp = parser.add_subparsers()
+
+    _add_help_to(parser, sp)
+
+    #---------------------------------------------------------------------------
+
+    p = sp.add_parser('admin', help='Service administration', **SP_ARGS)
+    admin_p = p
+    p.set_defaults(handler=lambda args: admin_p.print_help())
+    ssp = p.add_subparsers()
+    _add_help_to(p, ssp)
+
+    def invitePrincipal(args):
+        import base64
+        import urllib.parse
+        invite_secret = script(args, 'invitePrincipal', args.keyFile, {
+            'principal': args.principal,
+            'expiry_seconds': args.expiry,
+        })['invite_secret']
+        if args.invitation_code_only:
+            print(invite_secret)
+        else:
+            print(args.serviceUrl + '#!' + urllib.parse.urlencode({
+                'principal': args.principal,
+                'secret': invite_secret,
+            }))
+            invitation = {
+                'principal': args.principal,
+                'serviceUrl': args.serviceUrl,
+                'invitationCode': invite_secret,
+            }
+            print('comleastfixedpointsshcertauth:invitation?' +
+                  base64.b64encode(json.dumps(invitation).encode('utf-8')).decode('utf-8'))
+
+    p = ssp.add_parser('invite', help='Invite principal', **SP_ARGS)
+    p.add_argument('keyFile', metavar='adminKeyFile')
+    p.add_argument('principal')
+    p.add_argument('--expiry', metavar='SECONDS', type=int, default=86400,
+                   help='Number of seconds the invitation should remain valid for')
+    p.add_argument('--invitation-code-only', action='store_true',
+                   help='Whether to print out only the invitation code or a full URL')
+    p.set_defaults(handler=invitePrincipal)
+
+    def deletePrincipal(args):
+        print(json.dumps(script(args, 'deletePrincipal', args.keyFile, {
+            'principal': args.principal,
+        })['deleted']))
+
+    p = ssp.add_parser('delete', help='Delete principal', **SP_ARGS)
+    p.add_argument('keyFile', metavar='adminKeyFile')
+    p.add_argument('principal')
+    p.set_defaults(handler=deletePrincipal)
+
+    #---------------------------------------------------------------------------
+
+    p = sp.add_parser('machine', help='Tools for managing an SSH client machine', **SP_ARGS)
+    machine_p = p
+    p.set_defaults(handler=lambda args: machine_p.print_help())
+    ssp = p.add_subparsers()
+    _add_help_to(p, ssp)
+
+    def defaultComment():
+        import os
+        import socket
+        return os.getlogin() + '@' + socket.getfqdn()
+
+    def registerMachine(args):
+        print(script(args, 'registerMachine', args.keyFile, {
+            'principal': args.principal,
+            'comment': args.comment,
+        })['rendezvous_code'])
+
+    p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
+    p.add_argument('keyFile', metavar='machineKeyFile')
+    p.add_argument('principal')
+    p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+    p.set_defaults(handler=registerMachine)
+
+    def getCertificate(args):
+        cert = script(args, 'getCertificate', args.keyFile, {
+            'principal': args.principal,
+        })['certificate'] or ''
+        if args.output is not None:
+            if cert:
+                with open(args.output, 'w') as f:
+                    print(cert, file=f)
+            else:
+                sys.exit(1)
+        else:
+            print(cert)
+
+    p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
+    p.add_argument('keyFile', metavar='machineKeyFile')
+    p.add_argument('principal')
+    p.add_argument('-o', '--output', metavar='FILENAME')
+    p.set_defaults(handler=getCertificate)
+
+    #---------------------------------------------------------------------------
+
+    p = sp.add_parser('principal', help='Tools for managing a principal account', **SP_ARGS)
+    principal_p = p
+    p.set_defaults(handler=lambda args: principal_p.print_help())
+    ssp = p.add_subparsers()
+    _add_help_to(p, ssp)
+
+    p = ssp.add_parser('machine', help='Manage registered machines', **SP_ARGS)
+    principal_machine_p = p
+    p.set_defaults(handler=lambda args: principal_machine_p.print_help())
+    sssp = p.add_subparsers()
+    _add_help_to(p, sssp)
+
+    def deregisterMachine(args):
+        print(json.dumps(script(args, 'deregisterMachine', args.keyFile, {
+            'machine': args.machineKey,
+        })['deleted']))
+
+    p = sssp.add_parser('deregister', help='Deregister a machine', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('machineKey')
+    p.set_defaults(handler=deregisterMachine)
+
+    def setMachine(args):
+        script(args, 'setMachine', args.keyFile, {
+            'machine': args.machineKey,
+            'comment': args.comment,
+            'certificate': None if args.certificate == '' else args.certificate,
+        })
+
+    p = sssp.add_parser('set', help='Update a registered machine', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('machineKey')
+    p.add_argument('comment')
+    p.add_argument('certificate', default='', nargs='?')
+    p.set_defaults(handler=setMachine)
+
+    def listMachines(args):
+        if not args.json:
+            print('comment\tcert_present\tregistration_time\trequest_time\tpub')
+        for u in script(args, 'listMachines', args.keyFile, {})['machines']:
+            if args.json:
+                print(json.dumps(u))
+            else:
+                print(f'{u["comment"]}\t{"Y" if u["certificate"] else "N"}\t{u["registration_time"] or ""}\t{u["request_time"] or ""}\t{u["machine"]}')
+
+    p = sssp.add_parser('list', help='List registered machines', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('--json', action='store_true')
+    p.set_defaults(handler=listMachines)
+
+    p = ssp.add_parser('csr', help='Manage outstanding CSRs', **SP_ARGS)
+    principal_csr_p = p
+    p.set_defaults(handler=lambda args: principal_csr_p.print_help())
+    sssp = p.add_subparsers()
+    _add_help_to(p, sssp)
+
+    def getCertificateRequests(args):
+        for req in script(args, 'getCertificateRequests', args.keyFile, {})['requests']:
+            if args.json:
+                print(json.dumps(req))
+            else:
+                print(req['machine'] + ((' ' + req['comment']) if req['comment'] else ''))
+
+    p = sssp.add_parser('list', help='List outstanding CSRs', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('--json', action='store_true')
+    p.set_defaults(handler=getCertificateRequests)
+
+    def lookupRegistration(args):
+        res = script(args, 'lookupRegistration', args.keyFile, {
+            'rendezvous_code': args.rendezvousCode,
+        })
+        if res['found']:
+            print(res['machine'] + ((' ' + res['comment']) if res['comment'] else ''))
+
+    p = sssp.add_parser('lookup', help='Look up outstanding CSR', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('rendezvousCode')
+    p.set_defaults(handler=lookupRegistration)
+
+    p = ssp.add_parser('account', help='Manage a principal\'s account', **SP_ARGS)
+    principal_account_p = p
+    p.set_defaults(handler=lambda args: principal_account_p.print_help())
+    sssp = p.add_subparsers()
+    _add_help_to(p, sssp)
+
+    def registerPrincipal(args):
+        script(args, 'registerPrincipal', args.keyFile, {
+            'invite_secret': args.inviteSecret,
+        })
+
+    p = sssp.add_parser('register', help='Respond to an registration invitation', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('inviteSecret')
+    p.set_defaults(handler=registerPrincipal)
+
+    def reregisterPrincipal(args):
+        script(args, 'reregisterPrincipal', args.keyFile, {
+            'principal_key': None if args.newPublicKeyFile == '-' else open(args.newPublicKeyFile, 'r').read(),
+        })
+
+    p = sssp.add_parser('reregister', help='Change principal key', **SP_ARGS)
+    p.add_argument('keyFile', metavar='oldPrincipalKeyFile')
+    p.add_argument('newPublicKeyFile', help='Name of new principal public key, or "-" to DELETE ACCOUNT')
+    p.set_defaults(handler=reregisterPrincipal)
+
+    #---------------------------------------------------------------------------
+
+    p = sp.add_parser('server', help='Tools for managing an SSH server', **SP_ARGS)
+    server_p = p
+    p.set_defaults(handler=lambda args: server_p.print_help())
+    ssp = p.add_subparsers()
+    _add_help_to(p, ssp)
+
+    def registerServer(args):
+        print(script(args, 'registerServer', None, {
+            'principal': args.principal,
+        })['principal_key'] or '')
+
+    p = ssp.add_parser('ca', help='Retrive public key for a principal\'s CA', **SP_ARGS)
+    p.add_argument('principal')
+    p.set_defaults(handler=registerServer)
+
+    #---------------------------------------------------------------------------
+
+    args = parser.parse_args(argv)
+    try:
+        args.handler(args)
+    except HTTPError as exn:
+        print(json.dumps({
+            'http': exn.code,
+            'reason': exn.reason,
+        }), file=sys.stderr)
+        sys.exit(1)
+    except Exception as exn:
+        print(exn, file=sys.stderr)
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main(sys.argv)

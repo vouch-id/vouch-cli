@@ -1,9 +1,0 @@
-#!/usr/bin/env python3
-import json
-import script
-s = script.Script('deletePrincipal', 'adminKeyFile')
-s.parser.add_argument('principal')
-args = s.args()
-print(json.dumps(s.run({
-    'principal': args.principal,
-})['deleted']))
