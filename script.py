@@ -6,7 +6,7 @@ class Script:
         self.method = method
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument('--insecure', action=argparse.BooleanOptionalAction)
-        self.parser.add_argument('serviceUrl')
+        self.parser.add_argument('-s', '--service-url', dest='serviceUrl', default='https://vouch.id/')
         self.keyFile = keyFile
         if keyFile:
             self.parser.add_argument(keyFile)
