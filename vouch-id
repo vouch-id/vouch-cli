@@ -6,6 +6,7 @@ import ssl
 import time
 import math
 import os
+import re
 from uuid import uuid4
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -98,6 +99,10 @@ def defaultComment():
 def progress_message(s):
     if stderr_isatty:
         eprint(f'\x0d\x1b[K\x1b[33;1m⋯\x1b[39m {s}\x1b[0m', end='')
+
+def progress_detail(s):
+    if stderr_isatty:
+        eprint(s, end='')
 
 def progress_ok():
     if stderr_isatty:
@@ -257,11 +262,26 @@ def main(argv=sys.argv):
                                       '-f', certFile]).decode('utf-8').split('\n')
             except:
                 pass
+            validity_re = re.compile(r'^        Valid: (forever|from (\S+) to (\S+)|after (\S+)|before (\S+))$')
             for line in lines:
-                if line.startswith('        Valid: before '):
-                    ends = time.strptime(line, '        Valid: before %Y-%m-%dT%H:%M:%S')
-                    if ends <= time.localtime():
-                        cert = None
+                m = validity_re.match(line)
+                if m:
+                    outcomes = []
+                    now = time.localtime()
+                    afterStr = m.group(2) or m.group(4)
+                    if afterStr:
+                        after = time.strptime(afterStr, '%Y-%m-%dT%H:%M:%S')
+                        if now < after:
+                            outcomes.append(f'not valid until {afterStr}')
+                            cert = None
+                    beforeStr = m.group(3) or m.group(5)
+                    if beforeStr:
+                        before = time.strptime(beforeStr, '%Y-%m-%dT%H:%M:%S')
+                        if now >= before:
+                            outcomes.append(f'expired at {beforeStr}')
+                            cert = None
+                    if cert is None:
+                        progress_warning('Existing certificate ' + ' and '.join(outcomes))
             if cert is not None:
                 progress_ok()
 
