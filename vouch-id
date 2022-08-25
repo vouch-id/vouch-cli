@@ -11,6 +11,11 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from subprocess import check_output
 
+def eprint(*args, **kwargs):
+    return print(*args, file=sys.stderr, **kwargs)
+
+stderr_isatty = os.isatty(sys.stderr.fileno())
+
 class APIError(Exception):
     def __init__(self, response):
         self.error = response.get('error')
@@ -72,10 +77,10 @@ class Client:
         elif res.status >= 200 and res.status <= 299:
             return None
         else:
-            print(json.dumps({
+            eprint(json.dumps({
                 'http': res.status,
                 'reason': res.reason,
-            }), file=sys.stderr)
+            }))
             sys.exit(1)
 
 def script(args, method, keyFile, params):
@@ -91,18 +96,22 @@ def defaultComment():
     return os.getlogin() + '@' + socket.getfqdn()
 
 def progress_message(s):
-    print(f'\x0d\x1b[K\x1b[33;1m⋯\x1b[39m {s}\x1b[0m', file=sys.stderr, end='')
+    if stderr_isatty:
+        eprint(f'\x0d\x1b[K\x1b[33;1m⋯\x1b[39m {s}\x1b[0m', end='')
 
 def progress_ok():
-    print('\x0d\x1b[32;1m✔\x1b[0m', file=sys.stderr)
+    if stderr_isatty:
+        eprint('\x0d\x1b[32;1m✔\x1b[0m')
 
 def progress_fail(and_exit=True):
-    print('\x0d\x1b[31;1m❌\x1b[0m', file=sys.stderr)
+    if stderr_isatty:
+        eprint('\x0d\x1b[31;1m❌\x1b[0m')
     if and_exit:
         sys.exit(1)
 
 def progress_warning(s):
-    print(f'\x0d\x1b[K\x1b[31;1m⚠\x1b[33m {s}\x1b[0m', file=sys.stderr)
+    if stderr_isatty:
+        eprint(f'\x0d\x1b[K\x1b[31;1m⚠\x1b[33m {s}\x1b[0m')
 
 def progress_check(result, and_exit=True):
     if result:
@@ -453,13 +462,13 @@ def main(argv=sys.argv):
     try:
         args.handler(args)
     except HTTPError as exn:
-        print(json.dumps({
+        eprint(json.dumps({
             'http': exn.code,
             'reason': exn.reason,
-        }), file=sys.stderr)
+        }))
         sys.exit(1)
     except Exception as exn:
-        print(exn, file=sys.stderr)
+        eprint(exn)
         sys.exit(1)
 
 if __name__ == "__main__":
