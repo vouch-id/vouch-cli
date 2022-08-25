@@ -101,6 +101,9 @@ def progress_fail(and_exit=True):
     if and_exit:
         sys.exit(1)
 
+def progress_warning(s):
+    print(f'\x0d\x1b[K\x1b[31;1m⚠\x1b[33m {s}\x1b[0m', file=sys.stderr)
+
 def progress_check(result, and_exit=True):
     if result:
         progress_ok()
@@ -119,7 +122,7 @@ def main(argv=sys.argv):
                                      description=synopsis,
                                      **SP_ARGS)
 
-    parser.add_argument('--insecure', action=argparse.BooleanOptionalAction, help=argparse.SUPPRESS)
+    parser.add_argument('--insecure', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('-s', '--service-url', dest='serviceUrl', default='https://vouch.id/')
 
     parser.set_defaults(handler=lambda args: parser.print_help())
@@ -306,10 +309,12 @@ def main(argv=sys.argv):
 
             progress_ok()
 
-        progress_message('Adding certificate to ssh-agent')
-        check_output(['ssh-add', '-q', keyFile])
-        progress_ok()
-
+        if not os.getenv('SSH_AUTH_SOCK'):
+            progress_warning('ssh-agent not running, cannot add certificate to ssh-agent')
+        else:
+            progress_message('Adding certificate to ssh-agent')
+            check_output(['ssh-add', '-q', keyFile])
+            progress_ok()
 
     p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
