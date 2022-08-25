@@ -458,6 +458,20 @@ def main(argv=sys.argv):
 
     #---------------------------------------------------------------------------
 
+    def magic(args):
+        login(args)
+        os.execvp('nc', ['nc', args.host, str(args.port)])
+
+    p = sp.add_parser('magic', help='ProxyCommand SSH connection', **SP_ARGS)
+    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
+    p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+    p.add_argument('principal')
+    p.add_argument('host')
+    p.add_argument('port', type=int)
+    p.set_defaults(handler=magic)
+
+    #---------------------------------------------------------------------------
+
     args = parser.parse_args(argv)
     try:
         args.handler(args)
