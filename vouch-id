@@ -303,11 +303,13 @@ def main(argv=sys.argv):
 
             with open(certFile, 'wt') as f:
                 f.write(cert)
-            check_output(['ssh-add',
-                          '-q',
-                          keyFile])
 
             progress_ok()
+
+        progress_message('Adding certificate to ssh-agent')
+        check_output(['ssh-add', '-q', keyFile])
+        progress_ok()
+
 
     p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
