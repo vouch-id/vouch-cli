@@ -94,7 +94,7 @@ def _add_help_to(p, sp):
 def defaultComment():
     import os
     import socket
-    return os.getlogin() + '@' + socket.getfqdn()
+    return os.getlogin() + '@' + socket.gethostname()
 
 def progress_message(s):
     if stderr_isatty:
