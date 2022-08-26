@@ -55,7 +55,7 @@ class Client:
                                       '-q',
                                       '-Y', 'sign',
                                       '-f', os.path.expanduser(self.keyFile),
-                                      '-n', 'vouch.id+api@leastfixedpoint.com',
+                                      '-n', 'api@vouch.id',
                                       '-'],
                                      input=signedMessage).replace(b'\n', b'')
             auth_header = prefix + signature
