@@ -156,24 +156,15 @@ def main(argv=sys.argv):
     def invitePrincipal(args):
         import base64
         import urllib.parse
-        invite_secret = script(args, 'invitePrincipal', args.keyFile, {
+        res = script(args, 'invitePrincipal', args.keyFile, {
             'principal': args.principal,
             'expiry_seconds': args.expiry,
-        })['invite_secret']
+        })
         if args.invitation_code_only:
-            print(invite_secret)
+            print(res['invite_secret'])
         else:
-            print(args.serviceUrl + '#!' + urllib.parse.urlencode({
-                'principal': args.principal,
-                'secret': invite_secret,
-            }))
-            invitation = {
-                'principal': args.principal,
-                'serviceUrl': args.serviceUrl,
-                'invitationCode': invite_secret,
-            }
-            print('vouchid:invitation?' +
-                  base64.b64encode(json.dumps(invitation).encode('utf-8')).decode('utf-8'))
+            print(res['web_url'])
+            print(res['app_url'])
 
     p = ssp.add_parser('invite', help='Invite principal', **SP_ARGS)
     p.add_argument('keyFile', metavar='adminKeyFile')
