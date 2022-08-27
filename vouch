@@ -372,11 +372,11 @@ def main(argv=sys.argv):
         p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
         p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
         p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
+        p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
+                       help='Report on certificate status without doing anything')
         p.add_argument('principal')
 
     p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
-    p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
-                   help='Report on certificate status without doing anything')
     add_login_args(p)
     p.set_defaults(handler=login)
 
