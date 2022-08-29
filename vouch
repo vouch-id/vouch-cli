@@ -118,11 +118,102 @@ def progress_warning(s):
     if stderr_isatty:
         eprint(f'\x0d\x1b[K\x1b[31;1m⚠\x1b[33m {s}\x1b[0m')
 
+def progress_info(s):
+    if stderr_isatty:
+        eprint(f'\x0d\x1b[K\x1b[34;1m🛈\x1b[33m {s}\x1b[0m')
+
 def progress_check(result, and_exit=True):
     if result:
         progress_ok()
     else:
         progress_fail(and_exit)
+
+def fingerprint_key(publicKeyText):
+    return check_output(['ssh-keygen', '-l', '-f', '-'],
+                        encoding='utf-8',
+                        input=publicKeyText).split(' ')[1]
+
+class CertificateInfo:
+    attr_re = re.compile(r'^        ([^:]+): (.*)$')
+    elem_re = re.compile(r'^                (.*)$')
+
+    valid_re = re.compile(r'^(forever|from (\S+) to (\S+)|after (\S+)|before (\S+))$')
+
+    def __init__(self, certText=None, fileName=None):
+        if not ((fileName is None) ^ (certText is None)):
+            raise ValueError('CertificateInfo: needs either certText or fileName, but not both')
+        if fileName is not None:
+            self.fileName = fileName
+            with open(fileName, 'rt') as f:
+                self.certText = f.read()
+        else:
+            self.fileName = None
+            self.certText = certText
+        self.attributes = {}
+        self._parse()
+
+    def _parse(self):
+        # Pretty lazy approach, but good enough for now.
+
+        lines = check_output(['ssh-keygen',
+                              '-L',
+                              '-f', '-'],
+                             encoding='utf-8',
+                             input=self.certText).split('\n')
+        attr_name = None
+
+        for line in lines:
+            if line == '(stdin):1:' or line == '':
+                continue
+
+            m = CertificateInfo.attr_re.match(line)
+            if m:
+                attr_name = m.group(1)
+                self.attributes[attr_name] = m.group(2)
+                continue
+
+            m = CertificateInfo.elem_re.match(line)
+            if m:
+                if self.attributes[attr_name] == '':
+                    self.attributes[attr_name] = []
+                if type(self.attributes[attr_name]) != list:
+                    raise ValueError('Unparseable ssh-keygen -L output: elements found for ' +
+                                     'non-empty attribute ' + repr(attr_name))
+                self.attributes[attr_name].append(m.group(1))
+                continue
+
+            raise ValueError('Unparseable ssh-keygen -L output: ' + repr(line))
+
+    def issued_by_fingerprint(self, fingerprint):
+        return self.attributes.get('Signing CA') == f'ED25519 {fingerprint} (using ssh-ed25519)'
+
+    def validity_errors(self, now=None):
+        if now is None:
+            now = time.localtime()
+
+        valid_str = self.attributes.get('Valid')
+        if valid_str is None:
+            raise ValueError('No validity period available in certificate')
+
+        m = CertificateInfo.valid_re.match(valid_str)
+
+        errors = []
+
+        afterStr = m.group(2) or m.group(4)
+        if afterStr:
+            after = time.strptime(afterStr, '%Y-%m-%dT%H:%M:%S')
+            if now < after:
+                errors.append(f'not valid until {afterStr}')
+                cert = None
+
+        beforeStr = m.group(3) or m.group(5)
+        if beforeStr:
+            before = time.strptime(beforeStr, '%Y-%m-%dT%H:%M:%S')
+            if now >= before:
+                errors.append(f'expired at {beforeStr}')
+                cert = None
+
+        return errors
 
 def main(argv=sys.argv):
     app_name = os.path.basename(argv[0])
@@ -227,6 +318,15 @@ def main(argv=sys.argv):
     def login(args):
         keyFile = os.path.expanduser(args.keyFile)
         certFile = keyFile + '-cert.pub'
+        pubFile = keyFile + '.pub'
+
+        if not os.getenv('SSH_AUTH_SOCK'):
+            progress_warning('ssh-agent not running or not configured')
+            if args.saveCertificate:
+                progress_info('will only save certificate to disk')
+            else:
+                progress_message('no ssh-agent, cannot load certificates')
+                progress_fail()
 
         progress_message('Checking key pair')
         if os.path.exists(keyFile):
@@ -244,6 +344,9 @@ def main(argv=sys.argv):
                           '-f', keyFile])
             progress_check(os.path.exists(keyFile))
 
+        with open(pubFile, 'rt') as f:
+            identity_fingerprint = fingerprint_key(f.read())
+
         cert = None
         if os.path.exists(certFile):
             progress_message('Checking existing certificate')
@@ -257,50 +360,30 @@ def main(argv=sys.argv):
                 if not issuerKey:
                     progress_detail(' — no CA key found')
                     progress_fail()
-                issuer_fingerprint = check_output(['ssh-keygen', '-l', '-f', '-'],
-                                                  encoding='utf-8',
-                                                  input=issuerKey).split(' ')[1]
+                issuer_fingerprint = fingerprint_key(issuerKey)
 
             with open(certFile, 'rt') as f:
                 cert = f.read()
 
-            lines = []
-            try:
-                lines = check_output(['ssh-keygen',
-                                      '-L',
-                                      '-f', certFile]).decode('utf-8').split('\n')
-            except:
-                pass
+            info = CertificateInfo(certText=cert)
+            # eprint(json.dumps({
+            #     'identity_fingerprint': identity_fingerprint,
+            #     'issuer_fingerprint': issuer_fingerprint,
+            #     'certinfo': info.attributes,
+            # }, indent=4))
 
             signing_ca_re = re.compile(r'^        Signing CA: ED25519 (\S+).*$')
             validity_re = re.compile(r'^        Valid: (forever|from (\S+) to (\S+)|after (\S+)|before (\S+))$')
-            for line in lines:
 
-                if args.checkIssuer:
-                    m = signing_ca_re.match(line)
-                    if m:
-                        if issuer_fingerprint != m.group(1):
-                            progress_warning('Existing certificate issued by wrong CA')
-                            cert = None
+            if args.checkIssuer:
+                if not info.issued_by_fingerprint(issuer_fingerprint):
+                    progress_warning('Existing certificate issued by wrong CA')
+                    cert = None
 
-                m = validity_re.match(line)
-                if m:
-                    outcomes = []
-                    now = time.localtime()
-                    afterStr = m.group(2) or m.group(4)
-                    if afterStr:
-                        after = time.strptime(afterStr, '%Y-%m-%dT%H:%M:%S')
-                        if now < after:
-                            outcomes.append(f'not valid until {afterStr}')
-                            cert = None
-                    beforeStr = m.group(3) or m.group(5)
-                    if beforeStr:
-                        before = time.strptime(beforeStr, '%Y-%m-%dT%H:%M:%S')
-                        if now >= before:
-                            outcomes.append(f'expired at {beforeStr}')
-                            cert = None
-                    if outcomes:
-                        progress_warning('Existing certificate ' + ' and '.join(outcomes))
+            validity_errors = info.validity_errors()
+            if validity_errors:
+                progress_warning('Existing certificate ' + ' and '.join(validity_errors))
+                cert = None
 
             if cert is not None:
                 progress_ok()
@@ -356,10 +439,13 @@ def main(argv=sys.argv):
                 progress_message('Waiting for certificate to issue')
                 time.sleep(5)
 
-            with open(certFile, 'wt') as f:
-                f.write(cert)
-
             progress_ok()
+
+            if args.saveCertificate:
+                progress_message('Writing certificate to disk')
+                with open(certFile, 'wt') as f:
+                    f.write(cert)
+                progress_ok()
 
         if not os.getenv('SSH_AUTH_SOCK'):
             progress_warning('ssh-agent not running, cannot add certificate to ssh-agent')
@@ -372,6 +458,7 @@ def main(argv=sys.argv):
         p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
         p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
         p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
+        p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
         p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
                        help='Report on certificate status without doing anything')
         p.add_argument('principal')
