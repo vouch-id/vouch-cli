@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import json
-import sys
-import ssl
-import time
 import math
 import os
 import re
+import socket
+import ssl
+import struct
+import sys
+import time
 from uuid import uuid4
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -120,7 +123,7 @@ def progress_warning(s):
 
 def progress_info(s):
     if stderr_isatty:
-        eprint(f'\x0d\x1b[K\x1b[34;1m🛈\x1b[33m {s}\x1b[0m')
+        eprint(f'\x0d\x1b[K\x1b[34;1m🛈\x1b[39m {s}\x1b[0m')
 
 def progress_check(result, and_exit=True):
     if result:
@@ -128,92 +131,256 @@ def progress_check(result, and_exit=True):
     else:
         progress_fail(and_exit)
 
-def fingerprint_key(publicKeyText):
-    return check_output(['ssh-keygen', '-l', '-f', '-'],
-                        encoding='utf-8',
-                        input=publicKeyText).split(' ')[1]
+## SSH wire formatting
 
-class CertificateInfo:
-    attr_re = re.compile(r'^        ([^:]+): (.*)$')
-    elem_re = re.compile(r'^                (.*)$')
+def parse_chunk(length, bs):
+    if len(bs) < length: raise ValueError('Packet too short')
+    return (bs[:length], bs[length:])
 
-    valid_re = re.compile(r'^(forever|from (\S+) to (\S+)|after (\S+)|before (\S+))$')
+def parse_expected(expected, bs, msg=None):
+    if not bs.startswith(expected):
+        raise ValueError(msg or ('Missing expected text ' + repr(expected)))
+    return bs[len(expected):]
 
-    def __init__(self, certText=None, fileName=None):
-        if not ((fileName is None) ^ (certText is None)):
-            raise ValueError('CertificateInfo: needs either certText or fileName, but not both')
-        if fileName is not None:
-            self.fileName = fileName
-            with open(fileName, 'rt') as f:
-                self.certText = f.read()
+def parse_int(bs):
+    if len(bs) < 4: raise ValueError('Packet too short')
+    (val,) = struct.unpack('>I', bs[:4])
+    return (val, bs[4:])
+
+def parse_long(bs):
+    if len(bs) < 8: raise ValueError('Packet too short')
+    (val,) = struct.unpack('>Q', bs[:8])
+    return (val, bs[8:])
+
+def parse_byte(bs):
+    if len(bs) < 1: raise ValueError('Packet too short')
+    (val,) = struct.unpack('>B', bs[:1])
+    return (val, bs[1:])
+
+def parse_str(bs):
+    (length, bs) = parse_int(bs)
+    if len(bs) < length: raise ValueError('Packet too short')
+    return (bs[:length], bs[length:])
+
+def parse_expected_str(expected, bs, msg=None):
+    (actual, bs) = parse_str(bs)
+    if actual != expected: raise ValueError(msg or ('Missing expected text ' + repr(expected)))
+    return bs
+
+def parse_end(bs):
+    if bs != b'': raise ValueError('Unexpected bytes at end of packet')
+
+def format_int(i): return struct.pack('>I', i)
+def format_byte(b): return struct.pack('>B', b)
+def format_str(bs): return format_int(len(bs)) + bs
+
+class SshAgent:
+    def __init__(self, socket_path=None):
+        if socket_path is None:
+            socket_path = os.environ.get('SSH_AUTH_SOCK', None)
+
+        self.socket_path = socket_path
+
+        if socket_path:
+            try:
+                self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self._socket.connect(socket_path)
+            except socket.error:
+                if self._socket:
+                    self._socket.close()
+                self._socket = None
         else:
-            self.fileName = None
-            self.certText = certText
-        self.attributes = {}
-        self._parse()
+            self._socket = None
 
-    def _parse(self):
-        # Pretty lazy approach, but good enough for now.
+    def __del__(self):
+        if self._socket:
+            self._socket.close()
+            self._socket = None
 
-        lines = check_output(['ssh-keygen',
-                              '-L',
-                              '-f', '-'],
-                             encoding='utf-8',
-                             input=self.certText).split('\n')
-        attr_name = None
+    def _send(self, packet):
+        self._socket.sendall(format_str(packet))
 
-        for line in lines:
-            if line == '(stdin):1:' or line == '':
-                continue
+    def _readbytes(self, count):
+        bs = b''
+        while count > 0:
+            chunk = self._socket.recv(count)
+            count = count - len(chunk)
+            bs = bs + chunk
+        return memoryview(bs)
 
-            m = CertificateInfo.attr_re.match(line)
-            if m:
-                attr_name = m.group(1)
-                self.attributes[attr_name] = m.group(2)
-                continue
+    def _recv(self):
+        (length,) = struct.unpack('>I', self._readbytes(4))
+        bs = self._readbytes(length)
+        return bs
 
-            m = CertificateInfo.elem_re.match(line)
-            if m:
-                if self.attributes[attr_name] == '':
-                    self.attributes[attr_name] = []
-                if type(self.attributes[attr_name]) != list:
-                    raise ValueError('Unparseable ssh-keygen -L output: elements found for ' +
-                                     'non-empty attribute ' + repr(attr_name))
-                self.attributes[attr_name].append(m.group(1))
-                continue
+    def _readreply(self):
+        return parse_byte(self._recv())
 
-            raise ValueError('Unparseable ssh-keygen -L output: ' + repr(line))
+    def list_identities(self):
+        if not self._socket:
+            return []
+        self._send(bytes([11])) # SSH_AGENTC_REQUEST_IDENTITIES
+        (packet_type, blob) = self._readreply()
+        assert packet_type == 12 # SSH_AGENT_IDENTITIES_ANSWER
+        (nkeys, blob) = parse_int(blob)
 
-    def issued_by_fingerprint(self, fingerprint):
-        return self.attributes.get('Signing CA') == f'ED25519 {fingerprint} (using ssh-ed25519)'
+        result = []
+        for i in range(nkeys):
+            (keyblob, blob) = parse_str(blob)
+            (comment, blob) = parse_str(blob)
+            keytype = bytes(parse_str(keyblob)[0])
+            result.append((keytype, bytes(keyblob), bytes(comment).decode('utf-8')))
+
+        parse_end(blob)
+        return result
+
+    def _readsuccess(self):
+        (packet_type, blob) = self._readreply()
+        assert packet_type == 6 # SSH_AGENT_SUCCESS
+        parse_end(blob)
+
+    def add_identity(self, key_type, contents, comment):
+        self._send(bytes([17]) + format_str(key_type) + contents + format_str(comment))
+        self._readsuccess()
+
+    def remove_identity(self, key_blob):
+        self._send(bytes([18]) + format_str(key_blob))
+        self._readsuccess()
+
+class Ed25519PublicKey:
+    MAGIC = b'ssh-ed25519'
+
+    def __init__(self):
+        self.blob = None
+        self.public_key_bytes = None
+
+    def load(self, blob):
+        self.blob = blob
+        blob = parse_expected_str(Ed25519PublicKey.MAGIC, blob, 'Non-ED25519 keys not yet supported')
+        (self.public_key_bytes, blob) = parse_str(blob)
+        parse_end(blob)
+        return self
+
+    def load_from_bytes(self, bs):
+        self.blob = None
+        self.public_key_bytes = bs
+        return self
+
+    def __eq__(self, other):
+        return self.public_key_bytes == other.public_key_bytes
+
+class Ed25519SecretKey:
+    MAGIC = b'ssh-ed25519'
+
+    def __init__(self):
+        self.blob = None
+        self.public_key = None
+        self.secret_key_seed = None
+
+    def load(self, blob):
+        orig_blob = blob
+
+        (check1, blob) = parse_int(blob)
+        (check2, blob) = parse_int(blob)
+        if check1 != check2:
+            raise ValueError('Private key decryption failed')
+
+        blob = parse_expected_str(Ed25519SecretKey.MAGIC, blob, 'Non-ED25519 keys not yet supported')
+
+        (public_key_bytes, blob) = parse_str(blob)
+        self.public_key = Ed25519PublicKey().load_from_bytes(public_key_bytes)
+        (sk, blob) = parse_str(blob)
+        self.secret_key_seed = sk[:32]
+
+        (_comment, blob) = parse_str(blob)
+        self.blob = orig_blob[:-len(blob)]
+
+        # Padding
+        if len(blob) >= 16:
+            raise ValueError('Invalid private key file')
+        for (idx, b) in enumerate(blob, 1):
+            if idx != b:
+                raise ValueError('Invalid private key file')
+
+        return self
+
+    def __eq__(self, other):
+        return self.secret_key_seed == other.secret_key_seed
+
+class Ed25519Certificate:
+    MAGIC = b'ssh-ed25519-cert-v01@openssh.com'
+
+    def __init__(self):
+        self.blob = None
+        self.nonce = None
+
+    def load(self, blob):
+        self.blob = blob
+        blob = parse_expected_str(Ed25519Certificate.MAGIC, blob)
+        (self.nonce, blob) = parse_str(blob)
+        (signed_public_key_bytes, blob) = parse_str(blob)
+        self.signed_public_key = Ed25519PublicKey().load_from_bytes(signed_public_key_bytes)
+        (self.serial, blob) = parse_long(blob)
+        (self.cert_type, blob) = parse_int(blob)
+        (self.key_id, blob) = parse_str(blob)
+        (principals, blob) = parse_str(blob)
+        self.valid_principals = []
+        while principals:
+            (p, principals) = parse_str(principals)
+            self.valid_principals.append(p)
+        (self.valid_after, blob) = parse_long(blob)
+        (self.valid_before, blob) = parse_long(blob)
+        (self.critical_options_blob, blob) = parse_str(blob)
+        (self.extensions_blob, blob) = parse_str(blob)
+        (self.reserved, blob) = parse_str(blob)
+        (issuer_public_key_bytes, blob) = parse_str(blob)
+        self.issuer_public_key = Ed25519PublicKey().load(issuer_public_key_bytes)
+        (self.signature_blob, blob) = parse_str(blob)
+        return self
 
     def validity_errors(self, now=None):
         if now is None:
-            now = time.localtime()
-
-        valid_str = self.attributes.get('Valid')
-        if valid_str is None:
-            raise ValueError('No validity period available in certificate')
-
-        m = CertificateInfo.valid_re.match(valid_str)
+            now = time.time()
 
         errors = []
 
-        afterStr = m.group(2) or m.group(4)
-        if afterStr:
-            after = time.strptime(afterStr, '%Y-%m-%dT%H:%M:%S')
-            if now < after:
-                errors.append(f'not valid until {afterStr}')
-                cert = None
+        if now < self.valid_after:
+            t = time.localtime(self.valid_after)
+            errors.append(f'not valid until {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
 
-        beforeStr = m.group(3) or m.group(5)
-        if beforeStr:
-            before = time.strptime(beforeStr, '%Y-%m-%dT%H:%M:%S')
-            if now >= before:
-                errors.append(f'expired at {beforeStr}')
-                cert = None
+        if now >= self.valid_before:
+            t = time.localtime(self.valid_before)
+            errors.append(f'expired at {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
 
         return errors
+
+def decode_secret_key(text):
+    PREFIX = '-----BEGIN OPENSSH PRIVATE KEY-----'
+    SUFFIX = '-----END OPENSSH PRIVATE KEY-----'
+    text = text.replace('\n', '')
+    if not text.startswith(PREFIX) or not text.endswith(SUFFIX):
+        raise ValueError('Invalid private key file')
+    text = text[len(PREFIX):-len(SUFFIX)]
+    blob = base64.b64decode(text)
+    blob = parse_expected(b'openssh-key-v1\0', blob, 'Invalid private key file')
+    blob = parse_expected_str(b'none', blob, 'Passphrases not yet supported') # cipher
+    blob = parse_expected_str(b'none', blob, 'Passphrases not yet supported') # kd
+    blob = parse_expected_str(b'', blob, 'Invalid private key file') # salt
+
+    (nkeys, blob) = parse_int(blob)
+    if nkeys != 1:
+        raise ValueError('Private key file with more than one keypair not yet supported')
+
+    (pubkey_blob, blob) = parse_str(blob)
+    public_key = Ed25519PublicKey().load(pubkey_blob)
+
+    (seckey_blob, blob) = parse_str(blob)
+    secret_key = Ed25519SecretKey().load(seckey_blob)
+
+    if secret_key.public_key != public_key:
+        raise ValueError('Private key does not match public key')
+
+    return secret_key
 
 def main(argv=sys.argv):
     app_name = os.path.basename(argv[0])
@@ -245,8 +412,6 @@ def main(argv=sys.argv):
     _add_help_to(p, ssp)
 
     def invitePrincipal(args):
-        import base64
-        import urllib.parse
         res = script(args, 'invitePrincipal', args.keyFile, {
             'principal': args.principal,
             'expiry_seconds': args.expiry,
@@ -318,9 +483,9 @@ def main(argv=sys.argv):
     def login(args):
         keyFile = os.path.expanduser(args.keyFile)
         certFile = keyFile + '-cert.pub'
-        pubFile = keyFile + '.pub'
 
-        if not os.getenv('SSH_AUTH_SOCK'):
+        agent = SshAgent()
+        if not agent.socket_path:
             progress_warning('ssh-agent not running or not configured')
             if args.saveCertificate:
                 progress_info('will only save certificate to disk')
@@ -344,54 +509,65 @@ def main(argv=sys.argv):
                           '-f', keyFile])
             progress_check(os.path.exists(keyFile))
 
-        with open(pubFile, 'rt') as f:
-            identity_fingerprint = fingerprint_key(f.read())
+        with open(keyFile, 'rt') as f:
+            secret_key = decode_secret_key(f.read())
 
-        cert = None
-        if os.path.exists(certFile):
-            progress_message('Checking existing certificate')
-
-            issuer_fingerprint = None
-            if args.checkIssuer:
-                progress_detail(' — fetching CA key')
-                issuerKey = script(args, 'registerServer', None, {
-                    'principal': args.principal,
-                })['principal_key'] or ''
-                if not issuerKey:
-                    progress_detail(' — no CA key found')
-                    progress_fail()
-                issuer_fingerprint = fingerprint_key(issuerKey)
-
-            with open(certFile, 'rt') as f:
-                cert = f.read()
-
-            info = CertificateInfo(certText=cert)
-            # eprint(json.dumps({
-            #     'identity_fingerprint': identity_fingerprint,
-            #     'issuer_fingerprint': issuer_fingerprint,
-            #     'certinfo': info.attributes,
-            # }, indent=4))
-
-            signing_ca_re = re.compile(r'^        Signing CA: ED25519 (\S+).*$')
-            validity_re = re.compile(r'^        Valid: (forever|from (\S+) to (\S+)|after (\S+)|before (\S+))$')
-
-            if args.checkIssuer:
-                if not info.issued_by_fingerprint(issuer_fingerprint):
-                    progress_warning('Existing certificate issued by wrong CA')
-                    cert = None
-
-            validity_errors = info.validity_errors()
-            if validity_errors:
-                progress_warning('Existing certificate ' + ' and '.join(validity_errors))
-                cert = None
-
-            if cert is not None:
-                progress_ok()
-
-        if cert is None:
-            if args.dryRun:
-                progress_detail(' — no valid certificate present')
+        issuerKey = None
+        if args.checkIssuer:
+            progress_detail(' — fetching CA key')
+            issuerKeyStr = script(args, 'registerServer', None, {
+                'principal': args.principal,
+            })['principal_key'] or ''
+            if not issuerKeyStr:
+                progress_detail(' — no CA key found')
                 progress_fail()
+            issuerKey = Ed25519PublicKey().load(base64.b64decode(issuerKeyStr.split(' ')[1]))
+
+        progress_message('Checking existing certificates')
+
+        to_remove = []
+        chosen = None
+
+        for (keytype, keybytes, keycomment) in agent.list_identities():
+            if keytype != Ed25519Certificate.MAGIC:
+                continue
+
+            candidate = Ed25519Certificate().load(keybytes)
+
+            if candidate.signed_public_key != secret_key.public_key:
+                continue
+
+            if args.checkIssuer:
+                if candidate.issuer_public_key != issuerKey:
+                    to_remove.append((candidate, 'issued by different CA'))
+                    continue
+
+            errors = candidate.validity_errors()
+            if errors:
+                to_remove.append((candidate, ' and '.join(errors)))
+                continue
+
+            if chosen is None:
+                chosen = candidate
+            else:
+                if candidate.valid_before > chosen.valid_before:
+                    to_remove.append(chosen)
+                    chosen = candidate
+                else:
+                    to_remove.append(candidate)
+
+        progress_check(chosen is not None, and_exit=False)
+
+        for (cert, reason) in to_remove:
+            progress_info('removing certificate: ' + reason)
+            if not args.dryRun:
+                agent.remove_identity(cert.blob)
+
+        if chosen is None:
+            if args.dryRun:
+                progress_info('Dry run, not requesting a certificate')
+                return
+
             progress_message('Fetching certificate')
 
             def get_rendezvous_code():
@@ -431,10 +607,11 @@ def main(argv=sys.argv):
                     new_rendezvous_code = get_rendezvous_code()
                     continue
 
-                cert = get_certificate()
-                if cert == False:
+                cert_str = get_certificate()
+                if cert_str == False:
                     continue
-                if cert:
+                if cert_str:
+                    chosen = Ed25519Certificate().load(base64.b64decode(cert_str.split(' ')[1]))
                     break
                 progress_message('Waiting for certificate to issue')
                 time.sleep(5)
@@ -444,14 +621,16 @@ def main(argv=sys.argv):
             if args.saveCertificate:
                 progress_message('Writing certificate to disk')
                 with open(certFile, 'wt') as f:
-                    f.write(cert)
+                    f.write(cert_str)
                 progress_ok()
 
-        if not os.getenv('SSH_AUTH_SOCK'):
-            progress_warning('ssh-agent not running, cannot add certificate to ssh-agent')
-        else:
             progress_message('Adding certificate to ssh-agent')
-            check_output(['ssh-add', '-q', keyFile])
+            agent.add_identity(Ed25519Certificate.MAGIC,
+                               (format_str(chosen.blob) +
+                                format_str(secret_key.public_key.public_key_bytes) +
+                                format_str(secret_key.secret_key_seed +
+                                           secret_key.public_key.public_key_bytes)),
+                               b'')
             progress_ok()
 
     def add_login_args(p):
