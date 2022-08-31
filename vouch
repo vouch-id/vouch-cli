@@ -388,6 +388,9 @@ def main(argv=sys.argv):
 
     synopsis='''Interface to the vouch.id API.'''
 
+    VOUCH_ID_KEYFILE = os.getenv('VOUCH_ID_KEYFILE', '~/.ssh/id_ed25519')
+    VOUCH_ID_API = os.getenv('VOUCH_ID_API', 'https://vouch.id/')
+
     SP_ARGS = { 'formatter_class': argparse.ArgumentDefaultsHelpFormatter }
 
     parser = argparse.ArgumentParser(prog=app_name,
@@ -395,7 +398,7 @@ def main(argv=sys.argv):
                                      **SP_ARGS)
 
     parser.add_argument('--insecure', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('-s', '--service-url', dest='serviceUrl', default='https://vouch.id/')
+    parser.add_argument('-s', '--service-url', dest='serviceUrl', default=VOUCH_ID_API)
 
     parser.set_defaults(handler=lambda args: parser.print_help())
 
@@ -456,7 +459,7 @@ def main(argv=sys.argv):
         })['rendezvous_code'])
 
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
-    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
+    p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
     p.add_argument('principal')
     p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
     p.set_defaults(handler=registerMachine)
@@ -475,7 +478,7 @@ def main(argv=sys.argv):
             print(cert)
 
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
-    p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
+    p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
     p.add_argument('principal')
     p.add_argument('-o', '--output', metavar='FILENAME')
     p.set_defaults(handler=getCertificate)
@@ -634,7 +637,7 @@ def main(argv=sys.argv):
             progress_ok()
 
     def add_login_args(p):
-        p.add_argument('-k', '--key', dest='keyFile', default='~/.ssh/id_ed25519')
+        p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
         p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
         p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
         p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
