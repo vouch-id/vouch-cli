@@ -695,7 +695,7 @@ def main(argv=sys.argv):
 
     p = sssp.add_parser('list', help='List registered machines', **SP_ARGS)
     p.add_argument('keyFile', metavar='principalKeyFile')
-    p.add_argument('--json', action='store_true')
+    p.add_argument('-j', '--json', action='store_true')
     p.set_defaults(handler=listMachines)
 
     def lookupRegistration(args):
@@ -725,7 +725,7 @@ def main(argv=sys.argv):
 
     p = sssp.add_parser('list', help='List outstanding CSRs', **SP_ARGS)
     p.add_argument('keyFile', metavar='principalKeyFile')
-    p.add_argument('--json', action='store_true')
+    p.add_argument('-j', '--json', action='store_true')
     p.set_defaults(handler=getCertificateRequests)
 
     p = ssp.add_parser('account', help='Manage a principal\'s account', **SP_ARGS)
