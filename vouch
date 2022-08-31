@@ -346,11 +346,11 @@ class Ed25519Certificate:
 
         if now < self.valid_after:
             t = time.localtime(self.valid_after)
-            errors.append(f'not valid until {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
+            errors.append(f'it is not valid until {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
 
         if now >= self.valid_before:
             t = time.localtime(self.valid_before)
-            errors.append(f'expired at {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
+            errors.append(f'it expired at {time.strftime("%Y-%m-%d %H:%M:%S", t)}')
 
         return errors
 
@@ -539,7 +539,7 @@ def main(argv=sys.argv):
 
             if args.checkIssuer:
                 if candidate.issuer_public_key != issuerKey:
-                    to_remove.append((candidate, 'issued by different CA'))
+                    to_remove.append((candidate, 'it was issued by a different CA'))
                     continue
 
             errors = candidate.validity_errors()
@@ -559,7 +559,7 @@ def main(argv=sys.argv):
         progress_check(chosen is not None, and_exit=False)
 
         for (cert, reason) in to_remove:
-            progress_info('removing certificate: ' + reason)
+            progress_info('Removing an existing certificate because ' + reason)
             if not args.dryRun:
                 agent.remove_identity(cert.blob)
 
