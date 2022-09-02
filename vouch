@@ -19,6 +19,15 @@ def eprint(*args, **kwargs):
     return print(*args, file=sys.stderr, **kwargs)
 
 stderr_isatty = os.isatty(sys.stderr.fileno())
+no_color = True if os.getenv('NO_COLOR', '') else False
+_KILL_LINE = '\r\033[K'
+_BRIGHT = '' if no_color else '\033[1m'
+_RED = '' if no_color else '\033[31m'
+_GREEN = '' if no_color else '\033[32m'
+_YELLOW = '' if no_color else '\033[33m'
+_BLUE = '' if no_color else '\033[34m'
+_NORMAL = '' if no_color else '\033[39m' # normal colour, unchanged brightness
+_RESET = '' if no_color else '\033[0m'
 
 class APIError(Exception):
     def __init__(self, response):
@@ -101,7 +110,7 @@ def defaultComment():
 
 def progress_message(s):
     if stderr_isatty:
-        eprint(f'\x0d\x1b[K\x1b[33;1m⋯\x1b[39m {s}\x1b[0m', end='')
+        eprint(f'{_KILL_LINE+_BRIGHT+_YELLOW}⋯{_NORMAL} {s}{_RESET}', end='')
 
 def progress_detail(s):
     if stderr_isatty:
@@ -109,21 +118,21 @@ def progress_detail(s):
 
 def progress_ok():
     if stderr_isatty:
-        eprint('\x0d\x1b[32;1m✔\x1b[0m')
+        eprint(f'\r{_BRIGHT+_GREEN}✔{_RESET}')
 
 def progress_fail(and_exit=True):
     if stderr_isatty:
-        eprint('\x0d\x1b[31;1m❌\x1b[0m')
+        eprint(f'\r{_BRIGHT+_RED}❌{_RESET}')
     if and_exit:
         sys.exit(1)
 
 def progress_warning(s):
     if stderr_isatty:
-        eprint(f'\x0d\x1b[K\x1b[31;1m⚠\x1b[33m {s}\x1b[0m')
+        eprint(f'{_KILL_LINE+_BRIGHT+_RED}⚠{_YELLOW} {s}{_RESET}')
 
 def progress_info(s):
     if stderr_isatty:
-        eprint(f'\x0d\x1b[K\x1b[34;1m🛈\x1b[39m {s}\x1b[0m')
+        eprint(f'{_KILL_LINE+_BRIGHT+_BLUE}🛈{_NORMAL} {s}{_RESET}')
 
 def progress_check(result, and_exit=True):
     if result:
