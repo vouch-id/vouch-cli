@@ -621,6 +621,8 @@ def main(argv=sys.argv):
 
                 cert_str = get_certificate()
                 if cert_str == False:
+                    old_rendezvous_code = None
+                    new_rendezvous_code = get_rendezvous_code()
                     continue
                 if cert_str:
                     chosen = Ed25519Certificate().load(base64.b64decode(cert_str.split(' ')[1]))
