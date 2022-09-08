@@ -103,6 +103,34 @@ def _add_help_to(p, sp):
     h = sp.add_parser('help', help='Print help')
     h.set_defaults(handler=lambda args: p.print_help())
 
+def _ensure_principal(namespace, dest):
+    if getattr(namespace, dest, None) is None:
+        setattr(namespace, dest, { 'id': None, 'epoch': False })
+    return getattr(namespace, dest)
+
+class SetPrincipalIdAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        _ensure_principal(namespace, self.dest)['id'] = values
+
+class SetEpochAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if option_string in self.option_strings:
+            _ensure_principal(namespace, self.dest)['epoch'] = values
+
+class SetAnyEpochAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if option_string in self.option_strings:
+            _ensure_principal(namespace, self.dest)['epoch'] = False
+
+def _add_principal_argument(p):
+    p.add_argument('principal', action=SetPrincipalIdAction)
+    p.add_argument('--any-epoch', dest='principal', nargs=0, action=SetAnyEpochAction,
+                   default='any epoch',
+                   help='Apply the operation to any epoch of the named principal')
+    p.add_argument('--epoch', dest='principal', metavar='EPOCH', action=SetEpochAction,
+                   default='any epoch',
+                   help='Apply the operation only to a specific epoch of the named principal')
+
 def defaultComment():
     import os
     import socket
@@ -425,8 +453,9 @@ def main(argv=sys.argv):
 
     def invitePrincipal(args):
         res = script(args, 'invitePrincipal', args.keyFile, {
-            'principal': args.principal,
+            'principal_id': args.principalId,
             'expiry_seconds': args.expiry,
+            'replace_existing_ok': args.allow_replacement,
         })
         if args.invitation_code_only:
             print(res['invite_secret'])
@@ -436,11 +465,13 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('invite', help='Invite principal', **SP_ARGS)
     p.add_argument('keyFile', metavar='adminKeyFile')
-    p.add_argument('principal')
+    p.add_argument('principalId')
     p.add_argument('--expiry', metavar='SECONDS', type=int, default=86400,
                    help='Number of seconds the invitation should remain valid for')
+    p.add_argument('--allow-replacement', action='store_true',
+                   help='Whether to allow the invitation to replace an existing registration')
     p.add_argument('--invitation-code-only', action='store_true',
-                   help='Whether to print out only the invitation code or a full URL')
+                   help='Whether to print out only the invitation code or full URL details')
     p.set_defaults(handler=invitePrincipal)
 
     def deletePrincipal(args):
@@ -450,7 +481,7 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('delete', help='Delete principal', **SP_ARGS)
     p.add_argument('keyFile', metavar='adminKeyFile')
-    p.add_argument('principal')
+    _add_principal_argument(p)
     p.set_defaults(handler=deletePrincipal)
 
     #---------------------------------------------------------------------------
@@ -469,7 +500,7 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
-    p.add_argument('principal')
+    _add_principal_argument(p)
     p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
     p.set_defaults(handler=registerMachine)
 
@@ -488,7 +519,7 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
-    p.add_argument('principal')
+    _add_principal_argument(p)
     p.add_argument('-o', '--output', metavar='FILENAME')
     p.set_defaults(handler=getCertificate)
 
@@ -529,10 +560,7 @@ def main(argv=sys.argv):
             progress_detail(' — fetching CA key')
             issuerKeyStr = script(args, 'registerServer', None, {
                 'principal': args.principal,
-            })['principal_key'] or ''
-            if not issuerKeyStr:
-                progress_detail(' — no CA key found')
-                progress_fail()
+            })['principal_key']
             issuerKey = Ed25519PublicKey().load(base64.b64decode(issuerKeyStr.split(' ')[1]))
 
         progress_message('Checking existing certificates')
@@ -654,7 +682,7 @@ def main(argv=sys.argv):
         p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
         p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
                        help='Report on certificate status without doing anything')
-        p.add_argument('principal')
+        _add_principal_argument(p)
 
     p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
     add_login_args(p)
@@ -751,11 +779,14 @@ def main(argv=sys.argv):
     def registerPrincipal(args):
         script(args, 'registerPrincipal', args.keyFile, {
             'invite_secret': args.inviteSecret,
+            'replace_existing': args.replace_existing,
         })
 
     p = sssp.add_parser('register', help='Respond to an registration invitation', **SP_ARGS)
     p.add_argument('keyFile', metavar='principalKeyFile')
     p.add_argument('inviteSecret')
+    p.add_argument('--replace-existing', action='store_true',
+                   help='Replace the previous registration, if one is present')
     p.set_defaults(handler=registerPrincipal)
 
     def reregisterPrincipal(args):
@@ -777,12 +808,13 @@ def main(argv=sys.argv):
     _add_help_to(p, ssp)
 
     def registerServer(args):
-        print(script(args, 'registerServer', None, {
+        res = script(args, 'registerServer', None, {
             'principal': args.principal,
-        })['principal_key'] or '')
+        })
+        print(f"{res['principal_key']} {res['principal']['id']} {res['principal']['epoch']}")
 
     p = ssp.add_parser('ca', help='Retrive public key for a principal\'s CA', **SP_ARGS)
-    p.add_argument('principal')
+    _add_principal_argument(p)
     p.set_defaults(handler=registerServer)
 
     #---------------------------------------------------------------------------
