@@ -813,7 +813,7 @@ def main(argv=sys.argv):
         })
         print(f"{res['principal_key']} {res['principal']['id']} {res['principal']['epoch']}")
 
-    p = ssp.add_parser('ca', help='Retrive public key for a principal\'s CA', **SP_ARGS)
+    p = ssp.add_parser('ca', help='Retrieve public key for a principal\'s CA', **SP_ARGS)
     _add_principal_argument(p)
     p.set_defaults(handler=registerServer)
 
