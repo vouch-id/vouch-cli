@@ -451,6 +451,16 @@ def main(argv=sys.argv):
     ssp = p.add_subparsers()
     _add_help_to(p, ssp)
 
+    def deleteInvitation(args):
+        print(json.dumps(script(args, 'deleteInvitation', args.keyFile, {
+            'principal_id': args.principalId,
+        })['deleted']))
+
+    p = ssp.add_parser('uninvite', help='Delete invitation', **SP_ARGS)
+    p.add_argument('keyFile', metavar='adminKeyFile')
+    p.add_argument('principalId')
+    p.set_defaults(handler=deleteInvitation)
+
     def invitePrincipal(args):
         res = script(args, 'invitePrincipal', args.keyFile, {
             'principal_id': args.principalId,
@@ -462,6 +472,7 @@ def main(argv=sys.argv):
         else:
             print(res['web_url'])
             print(res['app_url'])
+        print(f"Invitation will expire in {res['remaining_lifetime']} seconds.")
 
     p = ssp.add_parser('invite', help='Invite principal', **SP_ARGS)
     p.add_argument('keyFile', metavar='adminKeyFile')
@@ -828,6 +839,21 @@ def main(argv=sys.argv):
     p.add_argument('host')
     p.add_argument('port', type=int)
     p.set_defaults(handler=magic)
+
+    #---------------------------------------------------------------------------
+
+    def requestInvitation(args):
+        res = script(args, 'requestInvitation', None, {
+            'email': args.email,
+        })
+        if res['fresh']:
+            print(f"An invitation email was sent. It will expire in {res['remaining_lifetime']} seconds.")
+        else:
+            print(f"The previously-sent email will expire in {res['remaining_lifetime']} seconds. After that, another can be sent.")
+
+    p = sp.add_parser('register', help='Request account', **SP_ARGS)
+    p.add_argument('email')
+    p.set_defaults(handler=requestInvitation)
 
     #---------------------------------------------------------------------------
 
