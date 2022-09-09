@@ -849,7 +849,7 @@ def main(argv=sys.argv):
         if res['fresh']:
             print(f"An invitation email was sent. It will expire in {res['remaining_lifetime']} seconds.")
         else:
-            print(f"The previously-sent email will expire in {res['remaining_lifetime']} seconds. After that, another can be sent.")
+            print(f"The previously-sent email will expire in {res['remaining_lifetime']} seconds. After that, another can be requested.")
 
     p = sp.add_parser('register', help='Request account', **SP_ARGS)
     p.add_argument('email')
