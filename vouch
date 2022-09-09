@@ -495,6 +495,14 @@ def main(argv=sys.argv):
     _add_principal_argument(p)
     p.set_defaults(handler=deletePrincipal)
 
+    def listPrincipals(args):
+        for p in script(args, 'listPrincipals', args.keyFile, {})['principals']:
+            print(f"{p['epoch']}\t{p['id']}")
+
+    p = ssp.add_parser('list', help='List principals', **SP_ARGS)
+    p.add_argument('keyFile', metavar='adminKeyFile')
+    p.set_defaults(handler=listPrincipals)
+
     #---------------------------------------------------------------------------
 
     p = sp.add_parser('machine', help='Tools for managing an SSH client machine', **SP_ARGS)
