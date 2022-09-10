@@ -26,7 +26,7 @@ if [ -z "$principal" ]; then echo "Missing principal"; exit 1; fi
 comment="$(echo "$comment" | sed -e 's:":\\":g')"
 
 reqId="$(dd if=/dev/urandom bs=32 count=1 status=none | base64)"
-req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"registerMachine","params":{"principal":"'"$principal"'","comment":"'"$comment"'"}}'
+req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"registerMachine","params":{"principal":{"id":"'"$principal"'","epoch":false},"comment":"'"$comment"'"}}'
 
 stamp="$(date +%s)"
 sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "api@vouch.id" - | tr -d '\n')"

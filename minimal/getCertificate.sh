@@ -23,7 +23,7 @@ if [ -z "$keyFile" ]; then echo "Missing keyFile"; exit 1; fi
 if [ -z "$principal" ]; then echo "Missing principal"; exit 1; fi
 
 reqId="$(dd if=/dev/urandom bs=32 count=1 status=none | base64)"
-req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"getCertificate","params":{"principal":"'"$principal"'"}}'
+req='{"jsonrpc":"2.0","id":"'"$reqId"'","method":"getCertificate","params":{"principal":{"id":"'"$principal"'","epoch":false}}}'
 
 stamp="$(date +%s)"
 sig="$(printf "SSH $reqId $stamp %s" "$req" | ssh-keygen -q -Y sign -f "$keyFile" -n "api@vouch.id" - | tr -d '\n')"
