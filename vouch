@@ -518,8 +518,8 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
-    _add_principal_argument(p)
     p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+    _add_principal_argument(p)
     p.set_defaults(handler=registerMachine)
 
     def getCertificate(args):
@@ -537,8 +537,8 @@ def main(argv=sys.argv):
 
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
-    _add_principal_argument(p)
     p.add_argument('-o', '--output', metavar='FILENAME')
+    _add_principal_argument(p)
     p.set_defaults(handler=getCertificate)
 
     def login(args):
