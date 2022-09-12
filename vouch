@@ -132,9 +132,8 @@ def _add_principal_argument(p):
                    help='Apply the operation only to a specific epoch of the named principal')
 
 def defaultComment():
-    import os
     import socket
-    return os.getlogin() + '@' + socket.gethostname()
+    return socket.gethostname()
 
 def progress_message(s):
     if stderr_isatty:
@@ -735,15 +734,25 @@ def main(argv=sys.argv):
         script(args, 'setMachine', args.keyFile, {
             'machine': args.machineKey,
             'comment': args.comment,
-            'certificate': None if args.certificate == '' else args.certificate,
         })
 
     p = sssp.add_parser('set', help='Update a registered machine', **SP_ARGS)
     p.add_argument('keyFile', metavar='principalKeyFile')
     p.add_argument('machineKey')
     p.add_argument('comment')
-    p.add_argument('certificate', default='', nargs='?')
     p.set_defaults(handler=setMachine)
+
+    def setCertificate(args):
+        script(args, 'setCertificate', args.keyFile, {
+            'machine': args.machineKey,
+            'certificate': None if args.certificate == '' else args.certificate,
+        })
+
+    p = sssp.add_parser('set', help='Set or clear a machine\'s certificate', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.add_argument('machineKey')
+    p.add_argument('certificate', default='', nargs='?')
+    p.set_defaults(handler=setCertificate)
 
     def listMachines(args):
         if not args.json:
