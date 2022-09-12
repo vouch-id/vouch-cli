@@ -418,6 +418,60 @@ def decode_secret_key(text):
 
     return secret_key
 
+def _add_munge_arguments(p):
+    p.add_argument('--dry-run', '-n', action='store_true',
+                   help='Dry run: modifies no files, shows what would happen')
+    p.add_argument('--verbose', action='store_true',
+                   help='Print out details of the changes being made')
+    p.add_argument('--remove', action='store_true',
+                   help='Remove configuration stanzas inserted by an earlier run')
+
+def munge(filename, comment_leader, specifier, comment_trailer, replacement_lines,
+          dry_run=False,
+          verbose=False,
+          at_top_if_missing=True):
+    opener = f"{comment_leader}--- {specifier} BEGIN ---{comment_trailer}"
+    closer = f"{comment_leader}--- {specifier} END ---{comment_trailer}"
+    position = 'head'
+    head_lines = []
+    body_lines = []
+    body_found = False
+    tail_lines = []
+    with open(filename, 'rt') as f:
+        for l in f:
+            if position == 'head':
+                if l.strip() == opener:
+                    position = 'body'
+                    body_found = True
+                else:
+                    head_lines.append(l)
+            elif position == 'body':
+                if l.strip() == closer:
+                    position = 'tail'
+                else:
+                    body_lines.append(l)
+            elif position == 'tail':
+                tail_lines.append(l)
+    if replacement_lines:
+        chunk = [opener + '\n'] + replacement_lines + [closer + '\n']
+        if body_found:
+            lines = head_lines + chunk + tail_lines
+        elif at_top_if_missing:
+            lines = chunk + head_lines + tail_lines
+        else:
+            lines = head_lines + tail_lines + chunk
+    else:
+        lines = head_lines + tail_lines
+
+    if dry_run:
+        print(filename + ':\n\t' + '\t'.join(lines), end='')
+    else:
+        progress_info(f'updating {filename}')
+        if verbose:
+            eprint('\t' + '\t'.join(lines), end='')
+        with open(filename, 'wt') as f:
+            f.write(''.join(lines))
+
 def main(argv=sys.argv):
     app_name = os.path.basename(argv[0])
     argv = argv[1:]
@@ -693,18 +747,71 @@ def main(argv=sys.argv):
                                b'')
             progress_ok()
 
-    def add_login_args(p):
+    def add_login_args(p, include_dry_run=True):
         p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
         p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
         p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
         p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
-        p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
-                       help='Report on certificate status without doing anything')
+        if include_dry_run:
+            p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
+                           help='Report on certificate status without doing anything')
         _add_principal_argument(p)
 
     p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
     add_login_args(p)
     p.set_defaults(handler=login)
+
+    def machine_setup(args):
+        specifier = f"{args.serviceUrl} {args.principal['id']}"
+        lines = []
+
+        if not args.remove:
+            commandline = ['ProxyCommand', 'vouch', 'magic']
+            params = {
+                'api': args.serviceUrl,
+                'principal': args.principal,
+            }
+            if args.insecure:
+                params['insecure'] = True
+
+            def esc(s):
+                return "'" + s.replace("'", "'\"'\"'") + "'"
+
+            if args.comment != defaultComment():
+                params['comment'] = args.comment
+                commandline.extend(['--comment', esc(args.comment)])
+
+            if args.keyFile != VOUCH_ID_KEYFILE:
+                params['key'] = args.keyFile
+                commandline.extend(['--key', esc(args.keyFile)])
+
+            if args.checkIssuer is False:
+                params['check-issuer'] = False
+                commandline.extend(['--no-check-issuer'])
+
+            if args.saveCertificate:
+                params['save-certificate'] = True
+                commandline.extend(['--save-certificate'])
+
+            if args.principal['epoch'] is not False:
+                commandline.extend(['--epoch', esc(args.principal['epoch'])])
+            else:
+                commandline.extend(['--any-epoch'])
+            commandline.extend([esc(args.principal['id']), '%h', '%p'])
+
+            lines.append('# vouch machine setup: ' + json.dumps(params) + '\n')
+            lines.append(' '.join(commandline) + '\n')
+
+        munge(os.path.expanduser('~/.ssh/config'),
+              '# ', specifier, '',
+              lines,
+              verbose=args.verbose,
+              dry_run=args.dry_run)
+
+    p = ssp.add_parser('setup', help='Set up SSH client configuration', **SP_ARGS)
+    _add_munge_arguments(p)
+    add_login_args(p, include_dry_run=False)
+    p.set_defaults(handler=machine_setup)
 
     #---------------------------------------------------------------------------
 
@@ -844,6 +951,50 @@ def main(argv=sys.argv):
     p = ssp.add_parser('ca', help='Retrieve public key for a principal\'s CA', **SP_ARGS)
     _add_principal_argument(p)
     p.set_defaults(handler=registerServer)
+
+    def server_setup(args):
+        args.accept_principals = \
+            [p.strip().replace('"', '').replace("'", "")
+             for p in (','.join(args.accept_principals)).split(',')
+             if p.strip()]
+
+        specifier = f"{args.serviceUrl} {args.principal['id']}"
+        lines = []
+
+        if not args.remove:
+            res = script(args, 'registerServer', None, { 'principal': args.principal })
+
+            prefix = ['cert-authority']
+            if args.accept_principals:
+                prefix.append('principals="' + ','.join(args.accept_principals) + '"')
+
+            params = {
+                'api': args.serviceUrl,
+                'principal': args.principal,
+            }
+            if args.insecure:
+                params['insecure'] = True
+            if args.accept_principals:
+                params['accept_principals'] = args.accept_principals
+
+            lines.append('# vouch server setup: ' + json.dumps(params) + '\n')
+            lines.append(' '.join([','.join(prefix),
+                                   res['principal_key'],
+                                   res['principal']['id'],
+                                   res['principal']['epoch']]) + '\n')
+
+        munge(os.path.expanduser('~/.ssh/authorized_keys'),
+              '# ', specifier, '',
+              lines,
+              verbose=args.verbose,
+              dry_run=args.dry_run)
+
+    p = ssp.add_parser('setup', help='Set up SSH server configuration', **SP_ARGS)
+    _add_munge_arguments(p)
+    p.add_argument('--accept-principals', action='append', default=[],
+                   help='Comma-separated list of SSH principals to accept')
+    _add_principal_argument(p)
+    p.set_defaults(handler=server_setup)
 
     #---------------------------------------------------------------------------
 
