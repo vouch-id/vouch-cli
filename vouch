@@ -565,10 +565,14 @@ def main(argv=sys.argv):
     _add_help_to(p, ssp)
 
     def registerMachine(args):
-        print(script(args, 'registerMachine', args.keyFile, {
+        res = script(args, 'registerMachine', args.keyFile, {
             'principal': args.principal,
             'comment': args.comment,
-        })['rendezvous_code'])
+        })
+        if res['state'] == 'registration-pending':
+            print(f"pending\t{res['rendezvous_code']}")
+        elif res['state'] == 'registered':
+            print(f"registered")
 
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
@@ -577,17 +581,19 @@ def main(argv=sys.argv):
     p.set_defaults(handler=registerMachine)
 
     def getCertificate(args):
-        cert = script(args, 'getCertificate', args.keyFile, {
+        res = script(args, 'getCertificate', args.keyFile, {
             'principal': args.principal,
-        })['certificate'] or ''
-        if args.output is not None:
-            if cert:
+        })
+        if res['state'] == 'certificate-pending':
+            return
+        elif res['state'] == 'not-registered':
+            sys.exit(1)
+        elif res['state'] == 'certificate-issued':
+            if args.output is not None:
                 with open(args.output, 'w') as f:
-                    print(cert, file=f)
+                    print(res['certificate'], file=f)
             else:
-                sys.exit(1)
-        else:
-            print(cert)
+                print(res['certificate'])
 
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
@@ -683,29 +689,25 @@ def main(argv=sys.argv):
             progress_message('Fetching certificate')
 
             def get_rendezvous_code():
-                try:
-                    return script(args, 'registerMachine', args.keyFile, {
-                        'principal': args.principal,
-                        'comment': args.comment,
-                    })['rendezvous_code']
-                except APIError as exn:
-                    if exn.error.get('data') == 'MACHINE_ALREADY_REGISTERED':
-                        return None
-                    else:
-                        progress_fail(False)
-                        raise
+                res = script(args, 'registerMachine', args.keyFile, {
+                    'principal': args.principal,
+                    'comment': args.comment,
+                })
+                if res['state'] == 'registration-pending':
+                    return res['rendezvous_code']
+                elif res['state'] == 'registered':
+                    return None
 
             def get_certificate():
-                try:
-                    return script(args, 'getCertificate', args.keyFile, {
-                        'principal': args.principal,
-                    })['certificate'] or ''
-                except APIError as exn:
-                    if exn.error.get('data') == 'MACHINE_NOT_FOUND':
-                        return False
-                    else:
-                        progress_fail(False)
-                        raise
+                res = script(args, 'getCertificate', args.keyFile, {
+                    'principal': args.principal,
+                })
+                if res['state'] == 'certificate-issued':
+                    return res['certificate']
+                elif res['state'] == 'certificate-pending':
+                    return None
+                elif res['state'] == 'not-registered':
+                    return False
 
             old_rendezvous_code = None
             new_rendezvous_code = get_rendezvous_code()
@@ -724,7 +726,7 @@ def main(argv=sys.argv):
                     old_rendezvous_code = None
                     new_rendezvous_code = get_rendezvous_code()
                     continue
-                if cert_str:
+                if cert_str is not None:
                     chosen = Ed25519Certificate().load(base64.b64decode(cert_str.split(' ')[1]))
                     break
                 progress_message('Waiting for certificate to issue')

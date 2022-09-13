@@ -35,4 +35,4 @@ ${curl} -s --data-binary "$req" \
         -H "Authorization: SSH $reqId $stamp $sig" \
         -H "Content-Type: application/json" \
         "$serviceUrl" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["rendezvous_code"])'
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"].get("rendezvous_code", ""))'
