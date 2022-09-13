@@ -10,10 +10,11 @@ import ssl
 import struct
 import sys
 import time
-from uuid import uuid4
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from enum import Enum, auto
 from subprocess import check_output
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+from uuid import uuid4
 
 def eprint(*args, **kwargs):
     return print(*args, file=sys.stderr, **kwargs)
@@ -565,10 +566,13 @@ def main(argv=sys.argv):
     _add_help_to(p, ssp)
 
     def registerMachine(args):
-        res = script(args, 'registerMachine', args.keyFile, {
+        req = {
             'principal': args.principal,
             'comment': args.comment,
-        })
+        }
+        if args.timeout is not None:
+            req['timeout'] = args.timeout
+        res = script(args, 'registerMachine', args.keyFile, req)
         if res['state'] == 'registration-pending':
             print(f"pending\t{res['rendezvous_code']}")
         elif res['state'] == 'registered':
@@ -577,13 +581,18 @@ def main(argv=sys.argv):
     p = ssp.add_parser('register', help='Register client machine', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
     p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+    p.add_argument('--timeout', metavar='SECONDS', type=int, default=None,
+                   help='Number of seconds to wait for success before returning "pending"')
     _add_principal_argument(p)
     p.set_defaults(handler=registerMachine)
 
     def getCertificate(args):
-        res = script(args, 'getCertificate', args.keyFile, {
+        req = {
             'principal': args.principal,
-        })
+        }
+        if args.timeout is not None:
+            req['timeout'] = args.timeout
+        res = script(args, 'getCertificate', args.keyFile, req)
         if res['state'] == 'certificate-pending':
             return
         elif res['state'] == 'not-registered':
@@ -598,6 +607,8 @@ def main(argv=sys.argv):
     p = ssp.add_parser('certificate', help='Retrieve machine certificate', **SP_ARGS)
     p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
     p.add_argument('-o', '--output', metavar='FILENAME')
+    p.add_argument('--timeout', metavar='SECONDS', type=int, default=None,
+                   help='Number of seconds to wait for success before returning "pending"')
     _add_principal_argument(p)
     p.set_defaults(handler=getCertificate)
 
@@ -688,19 +699,21 @@ def main(argv=sys.argv):
 
             progress_message('Fetching certificate')
 
-            def get_rendezvous_code():
+            def get_rendezvous_code(timeout):
                 res = script(args, 'registerMachine', args.keyFile, {
                     'principal': args.principal,
                     'comment': args.comment,
+                    'timeout': timeout,
                 })
                 if res['state'] == 'registration-pending':
                     return res['rendezvous_code']
                 elif res['state'] == 'registered':
                     return None
 
-            def get_certificate():
+            def get_certificate(timeout):
                 res = script(args, 'getCertificate', args.keyFile, {
                     'principal': args.principal,
+                    'timeout': timeout,
                 })
                 if res['state'] == 'certificate-issued':
                     return res['certificate']
@@ -710,27 +723,39 @@ def main(argv=sys.argv):
                     return False
 
             old_rendezvous_code = None
-            new_rendezvous_code = get_rendezvous_code()
+            new_rendezvous_code = None
+
+            class State(Enum):
+                REGISTRATION_UNKNOWN = auto()
+                REGISTRATION_PENDING = auto()
+                CERTIFICATE_UNKNOWN = auto()
+                CERTIFICATE_PENDING = auto()
+
+            state = State.REGISTRATION_UNKNOWN
+            TIMEOUT_SECONDS = 30
 
             while True:
-                if new_rendezvous_code != None:
-                    if old_rendezvous_code != new_rendezvous_code:
-                        progress_message('Add machine in app. Rendezvous code: ' + new_rendezvous_code)
-                        old_rendezvous_code = new_rendezvous_code
-                    time.sleep(5)
-                    new_rendezvous_code = get_rendezvous_code()
-                    continue
-
-                cert_str = get_certificate()
-                if cert_str == False:
-                    old_rendezvous_code = None
-                    new_rendezvous_code = get_rendezvous_code()
-                    continue
-                if cert_str is not None:
-                    chosen = Ed25519Certificate().load(base64.b64decode(cert_str.split(' ')[1]))
-                    break
-                progress_message('Waiting for certificate to issue')
-                time.sleep(5)
+                if state in [State.REGISTRATION_UNKNOWN, State.REGISTRATION_PENDING]:
+                    timeout = 0 if state is State.REGISTRATION_UNKNOWN else TIMEOUT_SECONDS
+                    new_rendezvous_code = get_rendezvous_code(timeout)
+                    if new_rendezvous_code is None:
+                        state = State.CERTIFICATE_UNKNOWN
+                    else:
+                        if old_rendezvous_code != new_rendezvous_code:
+                            progress_message('Add machine in app. Rendezvous code: ' + new_rendezvous_code)
+                            old_rendezvous_code = new_rendezvous_code
+                        state = State.REGISTRATION_PENDING
+                elif state in [State.CERTIFICATE_UNKNOWN, State.CERTIFICATE_PENDING]:
+                    timeout = 0 if state is State.CERTIFICATE_UNKNOWN else TIMEOUT_SECONDS
+                    cert_str = get_certificate(timeout)
+                    if cert_str == False:
+                        state = State.REGISTRATION_UNKNOWN
+                    elif cert_str is None:
+                        state = State.CERTIFICATE_PENDING
+                        progress_message('Waiting for certificate to issue')
+                    else:
+                        chosen = Ed25519Certificate().load(base64.b64decode(cert_str.split(' ')[1]))
+                        break
 
             progress_ok()
 
