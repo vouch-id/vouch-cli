@@ -104,14 +104,23 @@ def _add_help_to(p, sp):
     h = sp.add_parser('help', help='Print help')
     h.set_defaults(handler=lambda args: p.print_help())
 
+VOUCH_ID_PRINCIPAL = os.getenv('VOUCH_ID_PRINCIPAL', None)
+
 def _ensure_principal(namespace, dest):
-    if getattr(namespace, dest, None) is None:
-        setattr(namespace, dest, { 'id': None, 'epoch': False })
+    existing = getattr(namespace, dest, None)
+    if existing is None:
+        setattr(namespace, dest, { 'id': VOUCH_ID_PRINCIPAL, 'epoch': False })
+    elif isinstance(existing, str):
+        setattr(namespace, dest, { 'id': existing, 'epoch': False })
     return getattr(namespace, dest)
 
 class SetPrincipalIdAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        _ensure_principal(namespace, self.dest)['id'] = values
+        p = _ensure_principal(namespace, self.dest)
+        if isinstance(values, str):
+            p['id'] = values
+        if isinstance(values, list):
+            p['id'] = ''.join(values)
 
 class SetEpochAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -124,7 +133,10 @@ class SetAnyEpochAction(argparse.Action):
             _ensure_principal(namespace, self.dest)['epoch'] = False
 
 def _add_principal_argument(p):
-    p.add_argument('principal', action=SetPrincipalIdAction)
+    p.add_argument('principal', action=SetPrincipalIdAction,
+                   nargs=(1 if VOUCH_ID_PRINCIPAL is None else '?'),
+                   default=VOUCH_ID_PRINCIPAL,
+                   help='Set the principal name to use (often an email address)')
     p.add_argument('--any-epoch', dest='principal', nargs=0, action=SetAnyEpochAction,
                    default='any epoch',
                    help='Apply the operation to any epoch of the named principal')
