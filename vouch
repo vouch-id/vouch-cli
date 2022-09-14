@@ -670,7 +670,7 @@ def main(argv=sys.argv):
                 commandline.extend(['--epoch', esc(args.principal['epoch'])])
             else:
                 commandline.extend(['--any-epoch'])
-            commandline.extend([esc(args.principal['id']), '%h', '%p'])
+            commandline.extend(['%h', '%p', esc(args.principal['id'])])
 
             lines.append('# vouch machine setup: ' + json.dumps(params) + '\n')
             lines.append(' '.join(commandline) + '\n')
@@ -1044,9 +1044,9 @@ def main(argv=sys.argv):
         os.execvp('nc', ['nc', args.host, str(args.port)])
 
     p = sp.add_parser('magic', help='ProxyCommand SSH connection', **SP_ARGS)
-    add_login_args(p)
     p.add_argument('host')
     p.add_argument('port', type=int)
+    add_login_args(p)
     p.set_defaults(handler=magic)
 
     #---------------------------------------------------------------------------
