@@ -509,6 +509,16 @@ def main(argv=sys.argv):
 
     _add_help_to(parser, sp)
 
+    def add_login_args(p, include_dry_run=True):
+        p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
+        p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
+        p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
+        p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
+        if include_dry_run:
+            p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
+                           help='Report on certificate status without doing anything')
+        _add_principal_argument(p)
+
     #---------------------------------------------------------------------------
 
     p = sp.add_parser('admin', help='Service administration', **SP_ARGS)
@@ -623,6 +633,60 @@ def main(argv=sys.argv):
                    help='Number of seconds to wait for success before returning "pending"')
     _add_principal_argument(p)
     p.set_defaults(handler=getCertificate)
+
+    def machine_setup(args):
+        specifier = f"{args.serviceUrl} {args.principal['id']}"
+        lines = []
+
+        if not args.remove:
+            commandline = ['ProxyCommand', 'vouch', 'magic']
+            params = {
+                'api': args.serviceUrl,
+                'principal': args.principal,
+            }
+            if args.insecure:
+                params['insecure'] = True
+
+            def esc(s):
+                return "'" + s.replace("'", "'\"'\"'") + "'"
+
+            if args.comment != defaultComment():
+                params['comment'] = args.comment
+                commandline.extend(['--comment', esc(args.comment)])
+
+            if args.keyFile != VOUCH_ID_KEYFILE:
+                params['key'] = args.keyFile
+                commandline.extend(['--key', esc(args.keyFile)])
+
+            if args.checkIssuer is False:
+                params['check-issuer'] = False
+                commandline.extend(['--no-check-issuer'])
+
+            if args.saveCertificate:
+                params['save-certificate'] = True
+                commandline.extend(['--save-certificate'])
+
+            if args.principal['epoch'] is not False:
+                commandline.extend(['--epoch', esc(args.principal['epoch'])])
+            else:
+                commandline.extend(['--any-epoch'])
+            commandline.extend([esc(args.principal['id']), '%h', '%p'])
+
+            lines.append('# vouch machine setup: ' + json.dumps(params) + '\n')
+            lines.append(' '.join(commandline) + '\n')
+
+        munge(os.path.expanduser('~/.ssh/config'),
+              '# ', specifier, '',
+              lines,
+              verbose=args.verbose,
+              dry_run=args.dry_run)
+
+    p = ssp.add_parser('setup', help='Set up SSH client configuration', **SP_ARGS)
+    _add_munge_arguments(p)
+    add_login_args(p, include_dry_run=False)
+    p.set_defaults(handler=machine_setup)
+
+    #---------------------------------------------------------------------------
 
     def login(args):
         keyFile = os.path.expanduser(args.keyFile)
@@ -786,71 +850,9 @@ def main(argv=sys.argv):
                                b'')
             progress_ok()
 
-    def add_login_args(p, include_dry_run=True):
-        p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
-        p.add_argument('--comment', default=defaultComment(), help='Comment to identify this machine and its key')
-        p.add_argument('--no-check-issuer', dest='checkIssuer', action='store_false')
-        p.add_argument('--save-certificate', dest='saveCertificate', action='store_true')
-        if include_dry_run:
-            p.add_argument('-n', '--dry-run', dest='dryRun', action='store_true',
-                           help='Report on certificate status without doing anything')
-        _add_principal_argument(p)
-
-    p = ssp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
+    p = sp.add_parser('login', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
     add_login_args(p)
     p.set_defaults(handler=login)
-
-    def machine_setup(args):
-        specifier = f"{args.serviceUrl} {args.principal['id']}"
-        lines = []
-
-        if not args.remove:
-            commandline = ['ProxyCommand', 'vouch', 'magic']
-            params = {
-                'api': args.serviceUrl,
-                'principal': args.principal,
-            }
-            if args.insecure:
-                params['insecure'] = True
-
-            def esc(s):
-                return "'" + s.replace("'", "'\"'\"'") + "'"
-
-            if args.comment != defaultComment():
-                params['comment'] = args.comment
-                commandline.extend(['--comment', esc(args.comment)])
-
-            if args.keyFile != VOUCH_ID_KEYFILE:
-                params['key'] = args.keyFile
-                commandline.extend(['--key', esc(args.keyFile)])
-
-            if args.checkIssuer is False:
-                params['check-issuer'] = False
-                commandline.extend(['--no-check-issuer'])
-
-            if args.saveCertificate:
-                params['save-certificate'] = True
-                commandline.extend(['--save-certificate'])
-
-            if args.principal['epoch'] is not False:
-                commandline.extend(['--epoch', esc(args.principal['epoch'])])
-            else:
-                commandline.extend(['--any-epoch'])
-            commandline.extend([esc(args.principal['id']), '%h', '%p'])
-
-            lines.append('# vouch machine setup: ' + json.dumps(params) + '\n')
-            lines.append(' '.join(commandline) + '\n')
-
-        munge(os.path.expanduser('~/.ssh/config'),
-              '# ', specifier, '',
-              lines,
-              verbose=args.verbose,
-              dry_run=args.dry_run)
-
-    p = ssp.add_parser('setup', help='Set up SSH client configuration', **SP_ARGS)
-    _add_munge_arguments(p)
-    add_login_args(p, include_dry_run=False)
-    p.set_defaults(handler=machine_setup)
 
     #---------------------------------------------------------------------------
 
