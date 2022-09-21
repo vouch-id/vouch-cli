@@ -637,6 +637,16 @@ def main(argv=sys.argv):
     _add_principal_argument(p)
     p.set_defaults(handler=getCertificate)
 
+    def clearCertificate(args):
+        script(args, 'clearCertificate', args.keyFile, {
+            'principal': args.principal,
+        })
+
+    p = ssp.add_parser('clear-certificate', help='Remove cached machine certificate', **SP_ARGS)
+    p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
+    _add_principal_argument(p)
+    p.set_defaults(handler=clearCertificate)
+
     def machine_setup(args):
         specifier = f"{args.serviceUrl} {args.principal['id']}"
         lines = []
@@ -858,6 +868,13 @@ def main(argv=sys.argv):
     p.set_defaults(handler=login)
 
     def logout(args):
+        if not args.local_only:
+            progress_message('Clearing cached certificate at server')
+            script(args, 'clearCertificate', args.keyFile, {
+                'principal': args.principal,
+            })
+            progress_ok()
+
         keyFile = os.path.expanduser(args.keyFile)
 
         agent = SshAgent()
@@ -872,18 +889,19 @@ def main(argv=sys.argv):
             secret_key = decode_secret_key(f.read())
 
         progress_message('Checking existing certificates')
-
         for (keytype, keybytes, keycomment) in agent.list_identities():
             if keytype != Ed25519Certificate.MAGIC:
                 continue
             candidate = Ed25519Certificate().load(keybytes)
             if candidate.signed_public_key == secret_key.public_key:
                 agent.remove_identity(candidate.blob)
-
         progress_ok()
 
-    p = sp.add_parser('logout', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
-    add_login_args(p)
+    p = sp.add_parser('logout', help='Delete certificates from SSH agent and optionally from server', **SP_ARGS)
+    p.add_argument('-k', '--key', dest='keyFile', default=VOUCH_ID_KEYFILE)
+    p.add_argument('--local-only', action='store_true',
+                   help='Remove certificates from SSH agent only, leave certificates on server')
+    _add_principal_argument(p)
     p.set_defaults(handler=logout)
 
     #---------------------------------------------------------------------------
