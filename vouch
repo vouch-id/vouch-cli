@@ -438,6 +438,11 @@ def decode_secret_key(text):
 
     return secret_key
 
+def mksshdir():
+    os.makedirs(os.path.expanduser('~/.ssh'),
+                mode=0o700,
+                exist_ok=True)
+
 def _add_munge_arguments(p):
     p.add_argument('--dry-run', '-n', action='store_true',
                    help='Dry run: modifies no files, shows what would happen')
@@ -696,6 +701,7 @@ def main(argv=sys.argv):
             lines.append('# vouch machine setup: ' + json.dumps(params) + '\n')
             lines.append(' '.join(commandline) + '\n')
 
+        mksshdir()
         munge(os.path.expanduser('~/.ssh/config'),
               '# ', specifier, '',
               lines,
@@ -1083,6 +1089,7 @@ def main(argv=sys.argv):
                                    res['principal']['id'],
                                    res['principal']['epoch']]) + '\n')
 
+        mksshdir()
         munge(os.path.expanduser('~/.ssh/authorized_keys'),
               '# ', specifier, '',
               lines,
