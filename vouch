@@ -821,7 +821,7 @@ def main(argv=sys.argv):
                         state = State.CERTIFICATE_UNKNOWN
                     else:
                         if old_rendezvous_code != new_rendezvous_code:
-                            progress_message('Add machine in app. Rendezvous code: ' + new_rendezvous_code)
+                            progress_message('Authorize machine in app. Registration code: ' + new_rendezvous_code)
                             old_rendezvous_code = new_rendezvous_code
                         state = State.REGISTRATION_PENDING
                 elif state in [State.CERTIFICATE_UNKNOWN, State.CERTIFICATE_PENDING]:
