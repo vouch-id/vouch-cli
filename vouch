@@ -457,21 +457,24 @@ def munge(filename, comment_leader, specifier, comment_trailer, replacement_line
     body_lines = []
     body_found = False
     tail_lines = []
-    with open(filename, 'rt') as f:
-        for l in f:
-            if position == 'head':
-                if l.strip() == opener:
-                    position = 'body'
-                    body_found = True
-                else:
-                    head_lines.append(l)
-            elif position == 'body':
-                if l.strip() == closer:
-                    position = 'tail'
-                else:
-                    body_lines.append(l)
-            elif position == 'tail':
-                tail_lines.append(l)
+    if os.path.exists(filename):
+        with open(filename, 'rt') as f:
+            for l in f:
+                if position == 'head':
+                    if l.strip() == opener:
+                        position = 'body'
+                        body_found = True
+                    else:
+                        head_lines.append(l)
+                elif position == 'body':
+                    if l.strip() == closer:
+                        position = 'tail'
+                    else:
+                        body_lines.append(l)
+                elif position == 'tail':
+                    tail_lines.append(l)
+    else:
+        pass
     if replacement_lines:
         chunk = [opener + '\n'] + replacement_lines + [closer + '\n']
         if body_found:
