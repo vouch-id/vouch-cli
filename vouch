@@ -857,6 +857,35 @@ def main(argv=sys.argv):
     add_login_args(p)
     p.set_defaults(handler=login)
 
+    def logout(args):
+        keyFile = os.path.expanduser(args.keyFile)
+
+        agent = SshAgent()
+        if not agent.socket_path:
+            progress_warning('ssh-agent not running or not configured')
+            return
+
+        if not os.path.exists(keyFile):
+            return
+
+        with open(keyFile, 'rt') as f:
+            secret_key = decode_secret_key(f.read())
+
+        progress_message('Checking existing certificates')
+
+        for (keytype, keybytes, keycomment) in agent.list_identities():
+            if keytype != Ed25519Certificate.MAGIC:
+                continue
+            candidate = Ed25519Certificate().load(keybytes)
+            if candidate.signed_public_key == secret_key.public_key:
+                agent.remove_identity(candidate.blob)
+
+        progress_ok()
+
+    p = sp.add_parser('logout', help='Run through all the steps to ensure a certificate is available', **SP_ARGS)
+    add_login_args(p)
+    p.set_defaults(handler=logout)
+
     #---------------------------------------------------------------------------
 
     p = sp.add_parser('principal', help='Tools for managing a principal account', **SP_ARGS)
