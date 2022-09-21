@@ -759,10 +759,10 @@ def main(argv=sys.argv):
                 chosen = candidate
             else:
                 if candidate.valid_before > chosen.valid_before:
-                    to_remove.append(chosen)
+                    to_remove.append((chosen, 'it is not longest-lived'))
                     chosen = candidate
                 else:
-                    to_remove.append(candidate)
+                    to_remove.append((candidate, 'it is not longest-lived'))
 
         progress_check(chosen is not None, and_exit=False)
 
