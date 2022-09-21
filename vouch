@@ -11,10 +11,13 @@ import struct
 import sys
 import time
 from enum import Enum, auto
-from subprocess import check_output
+from subprocess import check_output, run
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
+
+__version__='UNRELEASED'
+__signer__=''
 
 def eprint(*args, **kwargs):
     return print(*args, file=sys.stderr, **kwargs)
@@ -160,11 +163,11 @@ def progress_ok():
     if stderr_isatty:
         eprint(f'{_KILL_LINE+_RESET}', end='')
 
-def progress_fail(and_exit=True):
+def progress_fail(and_exit=True, exit_status=1):
     if and_exit:
         if stderr_isatty:
             eprint(f'\r{_BRIGHT+_RED}❌{_RESET}')
-        sys.exit(1)
+        sys.exit(exit_status)
     else:
         if stderr_isatty:
             eprint(f'{_KILL_LINE+_RESET}', end='')
@@ -177,11 +180,11 @@ def progress_info(s):
     if stderr_isatty:
         eprint(f'{_KILL_LINE+_BRIGHT+_BLUE}🛈{_NORMAL} {s}{_RESET}')
 
-def progress_check(result, and_exit=True):
+def progress_check(result, and_exit=True, exit_status=1):
     if result:
         progress_ok()
     else:
-        progress_fail(and_exit)
+        progress_fail(and_exit, exit_status)
 
 ## SSH wire formatting
 
@@ -503,6 +506,7 @@ def main(argv=sys.argv):
                                      description=synopsis,
                                      **SP_ARGS)
 
+    parser.add_argument('-v', '--version', action='version', version=__version__)
     parser.add_argument('--insecure', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('-s', '--service-url', dest='serviceUrl', default=VOUCH_ID_API)
 
@@ -1113,6 +1117,72 @@ def main(argv=sys.argv):
     p = sp.add_parser('register', help='Request account', **SP_ARGS)
     p.add_argument('email')
     p.set_defaults(handler=requestInvitation)
+
+    #---------------------------------------------------------------------------
+
+    def selfUpdate(args):
+        import hashlib
+        import tempfile
+
+        if __name__ != '__main__':
+            eprint('Cowardly refusing to self-update when not running as standalone script.')
+            sys.exit(255)
+
+        if __version__ == 'UNRELEASED':
+            eprint('Cowardly refusing to self-update when running an UNRELEASED version.')
+            sys.exit(255)
+
+        progress_message('Downloading release info')
+        release_info = json.loads(urlopen('https://api.github.com/repos/vouch-id/vouch-cli/releases/latest').read().decode('utf-8'))
+        release_version = release_info['tag_name']
+        progress_ok()
+
+        asset_urls = {}
+        for asset in release_info['assets']:
+            asset_urls[asset['name']] = asset['browser_download_url']
+
+        if __version__ == release_version:
+            progress_info(f'You are on the latest release, {release_version}.')
+            sys.exit(0)
+
+        progress_info(f'A new release is available: {release_version}')
+        if args.check_only:
+            sys.exit(1)
+
+        progress_message(f'Downloading release signature {asset_urls["vouch.sig"]}')
+        release_signature = urlopen(asset_urls['vouch.sig']).read()
+        progress_ok()
+
+        progress_message(f'Downloading release {asset_urls["vouch"]}')
+        release_source = urlopen(asset_urls['vouch']).read()
+        progress_ok()
+
+        progress_message('Checking release signature')
+        with tempfile.NamedTemporaryFile(mode='w+t') as allowed_signers_file:
+            allowed_signers_file.write(f'release@vouch.id {__signer__}')
+            allowed_signers_file.flush()
+            with tempfile.NamedTemporaryFile(mode='w+b') as signature_file:
+                signature_file.write(release_signature)
+                signature_file.flush()
+                verify_ok = run(['ssh-keygen',
+                                 '-q',
+                                 '-Y', 'verify',
+                                 '-f', allowed_signers_file.name,
+                                 '-I', 'release@vouch.id',
+                                 '-n', 'vouch.id release',
+                                 '-s', signature_file.name],
+                                input=release_source).returncode == 0
+        progress_check(verify_ok, exit_status=255)
+
+        progress_message(f'Updating in-place at {__file__}')
+        with open(__file__, 'wt') as inplace:
+            inplace.write(release_source.decode('utf-8'))
+        progress_ok()
+
+    p = sp.add_parser('self-update', help='Update vouch CLI', **SP_ARGS)
+    p.add_argument('--check-only', action='store_true',
+                   help='Just check for an update without actually updating')
+    p.set_defaults(handler=selfUpdate)
 
     #---------------------------------------------------------------------------
 
