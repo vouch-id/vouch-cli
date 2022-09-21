@@ -8,12 +8,12 @@ tag: $(SIGNING_GH_USER).keys
 
 %.sig: % $(SIGNING_GH_USER).keys
 	-rm -f $@
-	ssh-keygen -Y sign -f $(SIGNING_GH_USER).keys -n git $*
+	ssh-keygen -Y sign -f $(SIGNING_GH_USER).keys -n 'vouch.id release' $*
 
-.INTERMEDIATE: $(SIGNING_GH_USER).keys
+.INTERMEDIATE: $(SIGNING_GH_USER).keys vouch.sig
 
 %.keys:
-	curl -s https://github.com/$@ > $@
+	curl -s -O https://github.com/$@
 
 release: tag vouch vouch.sig
 	gh release create -d --generate-notes $(TAG) vouch vouch.sig
