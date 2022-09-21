@@ -1069,15 +1069,17 @@ def main(argv=sys.argv):
     args = parser.parse_args(argv)
     try:
         args.handler(args)
+        return
     except HTTPError as exn:
         eprint(json.dumps({
             'http': exn.code,
             'reason': exn.reason,
         }))
-        sys.exit(1)
+    except KeyboardInterrupt as exn:
+        pass
     except Exception as exn:
         eprint(exn)
-        sys.exit(1)
+    sys.exit(1)
 
 if __name__ == "__main__":
     main(sys.argv)
