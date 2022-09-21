@@ -67,6 +67,7 @@ class Client:
         if self.keyFile:
             prefix = f'SSH {requestId} {math.floor(time.time())} '.encode('utf-8')
             signedMessage = prefix + req
+            check_output(['ssh-add', '-q', os.path.expanduser(self.keyFile)])
             signature = check_output(['ssh-keygen',
                                       '-q',
                                       '-Y', 'sign',
@@ -733,6 +734,7 @@ def main(argv=sys.argv):
                           '-N', '',
                           '-f', keyFile])
             progress_check(os.path.exists(keyFile))
+            check_output(['ssh-add', '-q', keyFile])
 
         with open(keyFile, 'rt') as f:
             secret_key = decode_secret_key(f.read())
