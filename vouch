@@ -439,21 +439,22 @@ def decode_secret_key(text):
     return secret_key
 
 def mksshdir():
-    os.makedirs(os.path.expanduser('~/.ssh'),
-                mode=0o700,
-                exist_ok=True)
+    sshdir = os.path.expanduser('~/.ssh')
+    if not os.path.exists(sshdir):
+        progress_info(f'Creating directory {sshdir}')
+        os.makedirs(sshdir, mode=0o700, exist_ok=True)
 
 def _add_munge_arguments(p):
     p.add_argument('--dry-run', '-n', action='store_true',
                    help='Dry run: modifies no files, shows what would happen')
-    p.add_argument('--verbose', action='store_true',
+    p.add_argument('--show-details', action='store_true',
                    help='Print out details of the changes being made')
     p.add_argument('--remove', action='store_true',
                    help='Remove configuration stanzas inserted by an earlier run')
 
 def munge(filename, comment_leader, specifier, comment_trailer, replacement_lines,
           dry_run=False,
-          verbose=False,
+          show_details=False,
           at_top_if_missing=True):
     opener = f"{comment_leader}--- {specifier} BEGIN ---{comment_trailer}"
     closer = f"{comment_leader}--- {specifier} END ---{comment_trailer}"
@@ -494,8 +495,8 @@ def munge(filename, comment_leader, specifier, comment_trailer, replacement_line
     if dry_run:
         print(filename + ':\n\t' + '\t'.join(lines), end='')
     else:
-        progress_info(f'updating {filename}')
-        if verbose:
+        progress_info(f'Updating {filename}')
+        if show_details:
             eprint('\t' + '\t'.join(lines), end='')
         with open(filename, 'wt') as f:
             f.write(''.join(lines))
@@ -705,7 +706,7 @@ def main(argv=sys.argv):
         munge(os.path.expanduser('~/.ssh/config'),
               '# ', specifier, '',
               lines,
-              verbose=args.verbose,
+              show_details=args.show_details,
               dry_run=args.dry_run)
 
     p = ssp.add_parser('setup', help='Set up SSH client configuration', **SP_ARGS)
@@ -723,7 +724,7 @@ def main(argv=sys.argv):
         if not agent.socket_path:
             progress_warning('ssh-agent not running or not configured')
             if args.saveCertificate:
-                progress_info('will only save certificate to disk')
+                progress_info('Will only save certificate to disk')
             else:
                 progress_message('no ssh-agent, cannot load certificates')
                 progress_fail()
@@ -1093,7 +1094,7 @@ def main(argv=sys.argv):
         munge(os.path.expanduser('~/.ssh/authorized_keys'),
               '# ', specifier, '',
               lines,
-              verbose=args.verbose,
+              show_details=args.show_details,
               dry_run=args.dry_run)
 
     p = ssp.add_parser('setup', help='Set up SSH server configuration', **SP_ARGS)
