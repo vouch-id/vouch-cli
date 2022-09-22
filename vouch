@@ -527,8 +527,10 @@ def main(argv=sys.argv):
     parser.add_argument('-v', '--version', action='version', version=__version__)
     parser.add_argument('--verbose', action='store_true',
                         help='Enable verbose output')
-    parser.add_argument('--insecure', action='store_true', help=argparse.SUPPRESS)
-    parser.add_argument('-s', '--service-url', dest='serviceUrl', default=VOUCH_ID_API)
+    parser.add_argument('--insecure', action='store_true',
+                        help=argparse.SUPPRESS)
+    parser.add_argument('-s', '--service-url', dest='serviceUrl', default=VOUCH_ID_API,
+                        help=argparse.SUPPRESS)
 
     parser.set_defaults(handler=lambda args: parser.print_help())
 
