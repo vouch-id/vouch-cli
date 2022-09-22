@@ -19,6 +19,8 @@ from uuid import uuid4
 __version__='UNRELEASED'
 __signer__=''
 
+_verbose=False
+
 def eprint(*args, **kwargs):
     return print(*args, file=sys.stderr, **kwargs)
 
@@ -162,7 +164,10 @@ def progress_detail(s):
 
 def progress_ok():
     if stderr_isatty:
-        eprint(f'{_KILL_LINE+_RESET}', end='')
+        if _verbose:
+            eprint(f'\r{_BRIGHT+_GREEN}✔{_RESET}')
+        else:
+            eprint(f'{_KILL_LINE+_RESET}', end='')
 
 def progress_fail(and_exit=True, exit_status=1):
     if and_exit:
@@ -171,7 +176,10 @@ def progress_fail(and_exit=True, exit_status=1):
         sys.exit(exit_status)
     else:
         if stderr_isatty:
-            eprint(f'{_KILL_LINE+_RESET}', end='')
+            if _verbose:
+                eprint(f'\r{_BRIGHT+_RED}❌{_RESET}')
+            else:
+                eprint(f'{_KILL_LINE+_RESET}', end='')
 
 def progress_warning(s):
     if stderr_isatty:
@@ -517,6 +525,8 @@ def main(argv=sys.argv):
                                      **SP_ARGS)
 
     parser.add_argument('-v', '--version', action='version', version=__version__)
+    parser.add_argument('--verbose', action='store_true',
+                        help='Enable verbose output')
     parser.add_argument('--insecure', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('-s', '--service-url', dest='serviceUrl', default=VOUCH_ID_API)
 
@@ -757,7 +767,7 @@ def main(argv=sys.argv):
             })['principal_key']
             issuerKey = Ed25519PublicKey().load(base64.b64decode(issuerKeyStr.split(' ')[1]))
 
-        progress_message('Checking existing certificates')
+        progress_message('Checking ssh-agent for usable existing certificates')
 
         to_remove = []
         chosen = None
@@ -790,7 +800,9 @@ def main(argv=sys.argv):
                 else:
                     to_remove.append((candidate, 'it is not longest-lived'))
 
-        progress_check(chosen is not None, and_exit=False)
+        if chosen is None:
+            progress_detail(' — no usable certificate present')
+        progress_ok()
 
         for (cert, reason) in to_remove:
             progress_info('Removing an existing certificate because ' + reason)
@@ -904,7 +916,7 @@ def main(argv=sys.argv):
         with open(keyFile, 'rt') as f:
             secret_key = decode_secret_key(f.read())
 
-        progress_message('Checking existing certificates')
+        progress_message('Checking ssh-agent for certificates to remove')
         for (keytype, keybytes, keycomment) in agent.list_identities():
             if keytype != Ed25519Certificate.MAGIC:
                 continue
@@ -1203,6 +1215,10 @@ def main(argv=sys.argv):
     #---------------------------------------------------------------------------
 
     args = parser.parse_args(argv)
+
+    global _verbose
+    _verbose = args.verbose
+
     try:
         args.handler(args)
         return
