@@ -807,7 +807,8 @@ def main(argv=sys.argv):
         progress_ok()
 
         for (cert, reason) in to_remove:
-            progress_info('Removing an existing certificate because ' + reason)
+            if _verbose:
+                progress_info('Removing an existing certificate because ' + reason)
             if not args.dryRun:
                 agent.remove_identity(cert.blob)
 
