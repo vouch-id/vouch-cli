@@ -965,7 +965,7 @@ def main(argv=sys.argv):
             'comment': args.comment,
         })
 
-    p = sssp.add_parser('set', help='Update a registered machine', **SP_ARGS)
+    p = sssp.add_parser('update', help='Update a registered machine', **SP_ARGS)
     p.add_argument('keyFile', metavar='principalKeyFile')
     p.add_argument('machineKey')
     p.add_argument('comment')
