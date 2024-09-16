@@ -14,9 +14,9 @@ do
     esac
 done
 
-serviceUrl=${ARGS[0]}
-keyFile=${ARGS[1]}
-principal=${ARGS[2]}
+serviceUrl=${ARGS[0]:-}
+keyFile=${ARGS[1]:-}
+principal=${ARGS[2]:-}
 comment=${ARGS[3]:-$((whoami; printf @; hostname) | tr -d ' \n\r')}
 
 if [ -z "$serviceUrl" ]; then echo "Missing serviceUrl"; exit 1; fi

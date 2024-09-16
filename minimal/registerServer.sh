@@ -14,8 +14,8 @@ do
     esac
 done
 
-serviceUrl=${ARGS[0]}
-principal=${ARGS[1]}
+serviceUrl=${ARGS[0]:-}
+principal=${ARGS[1]:-}
 
 if [ -z "$serviceUrl" ]; then echo "Missing serviceUrl"; exit 1; fi
 if [ -z "$principal" ]; then echo "Missing principal"; exit 1; fi
