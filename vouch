@@ -1056,6 +1056,13 @@ def main(argv=sys.argv):
     p.add_argument('newPublicKeyFile', help='Name of new principal public key, or "-" to DELETE ACCOUNT')
     p.set_defaults(handler=reregisterPrincipal)
 
+    def principalInfo(args):
+        print(json.dumps(script(args, 'principalInfo', args.keyFile, {})))
+
+    p = sssp.add_parser('info', help='Retrieve principal info', **SP_ARGS)
+    p.add_argument('keyFile', metavar='principalKeyFile')
+    p.set_defaults(handler=principalInfo)
+
     #---------------------------------------------------------------------------
 
     p = sp.add_parser('server', help='Tools for managing an SSH server', **SP_ARGS)
